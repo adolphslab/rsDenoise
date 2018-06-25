@@ -13,3 +13,5 @@ Currently the pipelines rely on the [HCP directory structure](https://wiki.human
 
 It may be best to work from `HCP_helpers.py` which is the cleanest version, yet refer to `helpers.py` for preprocessing pipeline definitions.
 
+Example output [here](https://caltech.box.com/s/t7zaw05wcnudl7b2jvn69wa2fvzlcc4j "outputs,preGLM0 pipeline")
+
