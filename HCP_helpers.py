@@ -5,15 +5,9 @@ from __future__ import division
 #----------------------------------
 class config(object):
     overwrite          = False
-    scriptlist         = list()
-    joblist            = list()
     queue              = False
-    tStamp             = ''
     useFIX             = False
     useMemMap          = False
-    steps              = {}
-    Flavors            = {}
-    sortedOperations   = list()
     maskParcelswithGM  = False
     preWhitening       = False
     maskParcelswithAll = True
@@ -22,9 +16,14 @@ class config(object):
     parcellationName   = ''
     parcellationFile   = ''
     # these variables are initialized here and used later in the pipeline, do not change
-    filtering   = []
-    doScrubbing = False
-
+    filtering          = []
+    doScrubbing	       = False
+    steps              = {}
+    Flavors            = {}
+    sortedOperations   = list()
+    scriptlist         = list()
+    joblist            = list()	
+    tStamp             = ''
 
 #----------------------------------
 # IMPORTS
