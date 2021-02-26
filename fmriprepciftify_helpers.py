@@ -1,5 +1,5 @@
-import os.path as op
-from os import mkdir, makedirs, getcwd, remove, listdir, environ
+#from __future__ import division
+
 #----------------------------------
 # initialize global variable config
 #----------------------------------
@@ -9,7 +9,6 @@ class config(object):
     joblist            = list()
     queue              = False
     tStamp             = ''
-    useFIX             = False
     useMemMap          = False
     steps              = {}
     Flavors            = {}
@@ -21,18 +20,19 @@ class config(object):
     useNative          = False
     parcellationName   = ''
     parcellationFile   = ''
-    outDir             = 'rsDenoise'								
+    outDir             = 'rsDenoise'
     FCDir              = 'FC'
-    headradius         = 50 #50mm as in Powers et al. 2012
+    smoothing          = '_s0' # ciftify format, used to read CIFTI files
+    preprocessing      = 'ciftify' # or 'fmriprep' or 'freesurfer'
     interpolation      = 'linear'
-    melodicFolder      = op.join('#fMRIrun#_hp2000.ica','filtered_func_data.ica') #the code #fMRIrun# will be replaced
-    plotSteps          = False # produce a grayplot after each processing step
+    plotSteps          = False # produce a grayplot for every processing step 
     isCifti            = False
-    sourceDir          = getcwd()
-    fcType             = 'correlation' # one of {"correlation", "partial correlation", "tangent", "covariance", "precision"}
+    isGifti            = False
+    n_contiguous       = 5 # if scrubbing is requested, minimum number of consecutive time points to survive scrubbing
     # these variables are initialized here and used later in the pipeline, do not change
     filtering   = []
     doScrubbing = False
+
 
 #----------------------------------
 # IMPORTS
@@ -44,6 +44,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import pandas as pd
+import os.path as op
+from os import mkdir, makedirs, getcwd, remove, listdir, environ
 import sys
 import numpy as np
 from numpy.polynomial.legendre import Legendre
@@ -52,18 +54,17 @@ import scipy.io as sio
 from scipy.spatial.distance import pdist, squareform
 from scipy.ndimage.morphology import binary_closing, binary_dilation, binary_erosion, binary_opening, generate_binary_structure
 import nipype.interfaces.fsl as fsl
-from subprocess import call, check_output, CalledProcessError, Popen, getoutput
+from subprocess import call, check_output, CalledProcessError, Popen
 import nibabel as nib
 import sklearn.model_selection as cross_validation
 from sklearn.linear_model import ElasticNetCV
 from sklearn.kernel_ridge import KernelRidge
 from sklearn import linear_model,feature_selection,preprocessing
 from sklearn.preprocessing import RobustScaler
+from sklearn.covariance import MinCovDet,GraphLassoCV
 from nilearn.signal import clean
-from nilearn import connectome
-#from sklearn.covariance import MinCovDet,GraphicalLassoCV,LedoitWolf
-from sklearn.covariance import LedoitWolf
-from past.utils import old_div
+from nilearn import connectome, image
+from sklearn.covariance import MinCovDet,GraphLassoCV,LedoitWolf
 import operator
 import gzip
 import string
@@ -78,13 +79,19 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 import seaborn as sns
 import nistats
 from nistats import design_matrix
+#from astropy.timeseries import LombScargle
 
 #----------------------------------
 # function to build dinamycally path to input fMRI file
 #----------------------------------
 def buildpath():
-    return op.join(config.DATADIR, config.subject,'MNINonLinear','Results',config.fmriRun)
-    #return config.DATADIR
+    if hasattr(config, 'session') and config.session:
+        return op.join(config.DATADIR, 'hcp', config.subject,'MNINonLinear','Results',config.session+'_'+config.fmriRun)
+    else:
+        return op.join(config.DATADIR, 'hcp', config.subject,'MNINonLinear','Results',config.fmriRun)
+#    return op.join(config.DATADIR)
+
+
 #----------------------------------
 # function to build dinamycally output path (BIDS-like) 
 #----------------------------------
@@ -99,9 +106,26 @@ def outpath():
         if not op.isdir(outPath): mkdir(outPath)
     outPath = op.join(outPath,config.fmriRun)
     if not op.isdir(outPath): mkdir(outPath)
+
     return outPath
 
-
+def get_confounds():
+    # fields from fmriprep: csf	white_matter global_signal std_dvars dvars framewise_displacement 
+    # t_comp_cor_00 t_comp_cor_01 t_comp_cor_02 t_comp_cor_03 t_comp_cor_04 t_comp_cor_05
+    # a_comp_cor_00 a_comp_cor_01 a_comp_cor_02 a_comp_cor_03 a_comp_cor_04 a_comp_cor_05	
+    # cosine00 cosine01 cosine02 cosine03 trans_x trans_y trans_z rot_x	rot_y rot_z
+    if hasattr(config, 'confounds') and not (config.confounds is None):
+        return config.confounds
+    if hasattr(config, 'session') and config.session:
+        confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session,'func', 
+		config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
+    else:
+        confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, 'func', 
+		config.subject+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
+    data = pd.read_csv(confoundsFile, delimiter='\t')
+    data.replace('n/a', 0, inplace=True)
+    config.confounds = data
+    return data
 #----------------------------------
 # EVs for task regression
 #----------------------------------
@@ -160,28 +184,16 @@ def get_EVs(path,task):
 # many more can be implemented
 #----------------------------------
 config.operationDict = {
-    'Task': [ #test task regression
-        ['TaskRegression',  1, []]
-        ],
-     'NSF': [
+    'Kong': [ #Kong  et al. 2018
         ['VoxelNormalization',      1, ['demean']],
-        ['Detrending',              2, ['poly', 2, 'wholebrain']],
-        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
-        ['MotionRegression',        3, ['ICA-AROMA']],
-        ['GlobalSignalRegression',  3, ['GS']],
-        ['TemporalFiltering',       3, ['DCT', 0.008, 0.08]],
-        ['Scrubbing',               5, ['FD-DVARS', 0.25, 50]]
+        ['Detrending',              2, ['poly', 1, 'wholebrain']],
+        ['TissueRegression',        3, ['WMCSF+dt', 'wholebrain']],
+        ['MotionRegression',        3, ['R dR']],
+        ['TemporalFiltering',       3, ['DCT', 0.009, 0.08]],
+        ['GlobalSignalRegression',  3, ['GS+dt']],
+        ['Scrubbing',               4, ['FD-DVARS', 0.2, 50]], 
         ],
-     'NSF2': [
-        ['VoxelNormalization',      1, ['demean']],
-        ['Detrending',              2, ['poly', 2, 'wholebrain']],
-        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
-        ['MotionRegression',        3, ['ICA-AROMA']],
-        ['GlobalSignalRegression',  3, ['GS']],
-        ['TemporalFiltering',       3, ['DCT', 0.008]],
-        ['Scrubbing',               5, ['FDmultiband', 0.25]]
-        ],
-     'MyConnectome': [
+    'MyConnectome': [
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 1, 'wholebrain']],
         ['TissueRegression',        3, ['WMCSF', 'wholebrain']],
@@ -189,6 +201,9 @@ config.operationDict = {
         ['GlobalSignalRegression',  3, ['GS']],
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]],
         ['Scrubbing',               5, ['FD', 0.25]]
+        ],
+    'Task': [ #test task regression
+        ['TaskRegression',  1, []]
         ],
     'A': [ #Finn et al. 2015
         ['VoxelNormalization',      1, ['zscore']],
@@ -221,7 +236,7 @@ config.operationDict = {
     'C': [ #Siegel et al. 2016 (SiegelB)
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 1, 'wholebrain']],
-        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
+        ['TissueRegression',        3, ['CompCor', 'WMCSF', 'wholebrain']],
         ['TissueRegression',        3, ['GM', 'wholebrain']], 
         ['GlobalSignalRegression',  3, ['GS']],
         ['MotionRegression',        3, ['censoring']],
@@ -246,6 +261,23 @@ config.operationDict = {
         ['MotionRegression',        3, ['censoring']],
         ['Scrubbing',               3, ['FD+DVARS', 0.25, 5]], 
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.0801]]
+        ],
+    'test_fmriprep': [ 
+        ['VoxelNormalization',      1, ['demean']],
+        ['VoxelNormalization',      1, ['zscore']],
+        ['VoxelNormalization',      1, ['pcSigCh']],
+        ['Detrending',              2, ['poly', 2, 'wholebrain']],
+        ['Detrending',              2, ['legendre', 3, 'GM']],
+        ['Detrending',              2, ['legendre', 2, 'WMCSF']],
+        ['TissueRegression',        3, ['CompCor', 5, 'fmriprep', 'wholebrain']],
+        ['TissueRegression',        3, ['CompCor', 5, 'WM+CSF','GM']],
+        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF','wholebrain']],
+        ['TissueRegression',        3, ['WMCSF+dt+sq', 'GM']], 
+        ['TemporalFiltering',       3, ['DCT']], 
+        ['GlobalSignalRegression',  3, ['GS+dt+sq']],
+        ['MotionRegression',        3, ['R R^2 R-1 R-1^2']],
+        ['Scrubbing',               3, ['FD', 0.25, 3]], 
+        ['TemporalFiltering',       4, ['CompCor']]
         ]
     }
 #----------------------------------
@@ -303,7 +335,7 @@ def regress(data, nTRs, TR, regressors, preWhitening=False):
     resid = data - fittedvalues.T
     data = resid
     elapsed_time = time() - start_time
-    print('Regression completed in {:02d}h{:02d}min{:02d}s'.format(int(np.floor(elapsed_time/3600)),int(np.floor((elapsed_time%3600)/60)),int(np.floor(elapsed_time%60)))) 
+    print('Regression completed in {:02d}h{:02d}min{:02d}s'.format(int(np.floor(elapsed_time/3600)),int(np.floor((elapsed_time%3600)/60)),int(np.floor(elapsed_time%60))))
     return data
 	
 ## 
@@ -360,108 +392,203 @@ def load_img(volFile,maskAll=None,unzip=config.useMemMap):
         data = np.memmap(volFile, dtype=img.header.get_data_dtype(), mode='c', order='F',
             offset=img.dataobj.offset,shape=img.header.get_data_shape())
         if nTRs==1:
-            data = data.reshape(nRows*nCols*nSlices, order='F')[maskAll,:]
+            data = data.reshape(nRows*nCols*nSlices, order='F')
         else:
-            data = data.reshape((nRows*nCols*nSlices,data.shape[3]), order='F')[maskAll,:]
+            data = data.reshape((nRows*nCols*nSlices,data.shape[3]), order='F')
     else:
         if nTRs==1:
-            data = np.asarray(img.dataobj).reshape(nRows*nCols*nSlices, order='F')[maskAll]
+            data = np.asarray(img.dataobj).reshape(nRows*nCols*nSlices, order='F')
         else:
-            data = np.asarray(img.dataobj).reshape((nRows*nCols*nSlices,nTRs), order='F')[maskAll,:]
+            data = np.asarray(img.dataobj).reshape((nRows*nCols*nSlices,nTRs), order='F')
+    if not maskAll is None:
+        data = data[maskAll,:]
 
     return data, nRows, nCols, nSlices, nTRs, img.affine, TR, img.header
 	
 ## 
 #  @brief Create whole brain and tissue masks
 #  
-#  @param  [bool] overwrite True if existing files should be overwritten
 #  @return [tuple] whole brain, white matter, cerebrospinal fluid and gray matter masks
 #  
-def makeTissueMasks(overwrite=False,precomputed=False):
-    if config.isCifti:
-        prefix = config.session+'_' if  hasattr(config,'session')  else '' 
-        fmriFile = op.join(buildpath(), prefix+config.fmriRun+'.nii.gz')
-    else:
-        fmriFile = config.fmriFile
-    WMmaskFileout = op.join(outpath(), 'WMmask.nii')
+def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
+    fmriFile = config.fmriFile
+    WMmaskFileout = op.join(outpath(),'WMmask.nii')
     CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
     GMmaskFileout = op.join(outpath(), 'GMmask.nii')
     
     if not op.isfile(GMmaskFileout) or overwrite:
-        # load ribbon.nii.gz and wmparc.nii.gz
-        ribbonFilein = op.join(config.DATADIR, config.subject, 'MNINonLinear','ribbon.nii.gz')
-        wmparcFilein = op.join(config.DATADIR, config.subject, 'MNINonLinear', 'wmparc.nii.gz')
-        # make sure it is resampled to the same space as the functional run
-        ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
-        wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
-        # make identity matrix to feed to flirt for resampling
-        ribbonMat = op.join(outpath(), 'ribbon_flirt_{}.mat'.format(config.pipelineName))
-        wmparcMat = op.join(outpath(), 'wmparc_flirt_{}.mat'.format(config.pipelineName))
-        eyeMat = op.join(outpath(), 'eye_{}.mat'.format(config.pipelineName))
-        with open(eyeMat,'w') as fid:
-            fid.write('1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1')
+        if (config.preprocessing).lower() == 'ciftify' :
+            # load wmparc.nii.gz
+            wmparcFilein = op.join(config.DATADIR, 'hcp', config.subject, 'MNINonLinear', 'wmparc.nii.gz')
+            # make sure it is resampled to the same space as the functional run
+            wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
+            # make identity matrix to feed to flirt for resampling
+            wmparcMat = op.join(outpath(), 'wmparc_flirt.mat')
+            eyeMat = op.join(outpath(), 'eye.mat')
+            with open(eyeMat,'w') as fid:
+                fid.write('1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1')
 
-        
-        flirt_ribbon = fsl.FLIRT(in_file=ribbonFilein, out_file=ribbonFileout,
-                                reference=fmriFile, apply_xfm=True,
-                                in_matrix_file=eyeMat, out_matrix_file=ribbonMat, interp='nearestneighbour')
-        flirt_ribbon.run()
+            
+            flirt_wmparc = fsl.FLIRT(in_file=wmparcFilein, out_file=wmparcFileout,
+                                    reference=fmriFile, apply_xfm=True,
+                                    in_matrix_file=eyeMat, out_matrix_file=wmparcMat, interp='nearestneighbour')
 
-        flirt_wmparc = fsl.FLIRT(in_file=wmparcFilein, out_file=wmparcFileout,
-                                reference=fmriFile, apply_xfm=True,
-                                in_matrix_file=eyeMat, out_matrix_file=wmparcMat, interp='nearestneighbour')
+            flirt_wmparc.run()
+            
+            # load nii 
+            wmparc = np.asarray(nib.load(wmparcFileout).dataobj)
+            
+            # indices are from FreeSurferColorLUT.txt
+            
+            # Cerebellar-White-Matter-Left, Brain-Stem, Cerebellar-White-Matter-Right
+            wmparcWMstructures = [7, 16, 46, 5001, 5002]
+            # Cortical white matter (left and right)
+            wmparcWMstructures = np.concatenate([wmparcWMstructures, np.arange(3000,3036), np.arange(4000,4036)])
+            # Left-Cerebellar-Cortex, Right-Cerebellar-Cortex, Thalamus-Left, Caudate-Left
+            # Putamen-Left, Pallidum-Left, Hippocampus-Left, Amygdala-Left, Accumbens-Left 
+            # Diencephalon-Ventral-Left, Thalamus-Right, Caudate-Right, Putamen-Right
+            # Pallidum-Right, Hippocampus-Right, Amygdala-Right, Accumbens-Right
+            # Diencephalon-Ventral-Right
+            wmparcGMstructures = [8, 47, 10, 11, 12, 13, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60]
+            # Cortical gray matter (left and write)
+            wmparcGMstructures = np.concatenate([wmparcGMstructures, np.arange(1000,1036), np.arange(2000,2036)])
+            # Fornix, CC-Posterior, CC-Mid-Posterior, CC-Central, CC-Mid-Anterior, CC-Anterior
+            wmparcCCstructures = [250, 251, 252, 253, 254, 255]
+            # Left-Lateral-Ventricle, Left-Inf-Lat-Vent, 3rd-Ventricle, 4th-Ventricle, CSF
+            # Left-Choroid-Plexus, Right-Lateral-Ventricle, Right-Inf-Lat-Vent, Right-Choroid-Plexus
+            wmparcCSFstructures = [4, 5, 14, 15, 24, 31, 43, 44, 63]
+            
+            # make masks
+            WMmask = np.double(np.logical_or(np.in1d(wmparc, wmparcCCstructures),np.in1d(wmparc, wmparcWMstructures)))
+            CSFmask = np.double(np.in1d(wmparc, wmparcCSFstructures))
+            GMmask = np.double(np.in1d(wmparc,wmparcGMstructures))
+            
+            # write masks
+            ref = nib.load(wmparcFileout)
+            img = nib.Nifti1Image(WMmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, WMmaskFileout)
+            
+            img = nib.Nifti1Image(CSFmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, CSFmaskFileout)
+            
+            img = nib.Nifti1Image(GMmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, GMmaskFileout)
+            
+            # delete temporary files
+            cmd = 'rm {} {}'.format(eyeMat, wmparcMat)
+            call(cmd,shell=True)
 
-        flirt_wmparc.run()
+        elif config.preprocessing == 'freesurfer': # output of fmriprep + freesurfer
+            prefix = config.session+'_' if  hasattr(config,'session')  else ''
+            wmparcFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session if  hasattr(config,'session')  else '', 'func',
+                config.subject+'_'+prefix+config.fmriRun+'_space-T1w_desc-aseg_dseg.nii.gz')
+            ribbonFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session if  hasattr(config,'session')  else '', 'func',
+                config.subject+'_'+prefix+config.fmriRun+'_space-T1w_desc-aparcaseg_dseg.nii.gz')
+            ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
+            wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
+            # make identity matrix to feed to flirt for resampling
+            ribbonMat = op.join(outpath(), 'ribbon_flirt.mat')
+            wmparcMat = op.join(outpath(), 'wmparc_flirt.mat')
+            eyeMat = op.join(outpath(), 'eye_{}.mat'.format(config.pipelineName))
+            with open(eyeMat,'w') as fid:
+                fid.write('1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1')
+
+            
+            flirt_ribbon = fsl.FLIRT(in_file=ribbonFilein, out_file=ribbonFileout,
+                                    reference=fmriFile, apply_xfm=True,
+                                    in_matrix_file=eyeMat, out_matrix_file=ribbonMat, interp='nearestneighbour')
+            flirt_ribbon.run()
+
+            flirt_wmparc = fsl.FLIRT(in_file=wmparcFilein, out_file=wmparcFileout,
+                                    reference=fmriFile, apply_xfm=True,
+                                    in_matrix_file=eyeMat, out_matrix_file=wmparcMat, interp='nearestneighbour')
+
+            flirt_wmparc.run()
+            
+            # load nii (ribbon & wmparc)
+            ribbon = np.asarray(nib.load(ribbonFileout).dataobj)
+            wmparc = np.asarray(nib.load(wmparcFileout).dataobj)
         
-        # load nii (ribbon & wmparc)
-        ribbon = np.asarray(nib.load(ribbonFileout).dataobj)
-        wmparc = np.asarray(nib.load(wmparcFileout).dataobj)
-        
-        # white & CSF matter mask
-        # indices are from FreeSurferColorLUT.txt
-        
-        # Left-Cerebral-White-Matter, Right-Cerebral-White-Matter
-        ribbonWMstructures = [2, 41]
-        # Left-Cerebral-Cortex, Right-Cerebral-Cortex
-        ribbonGMstrucures = [3, 42]
-        # Cerebellar-White-Matter-Left, Brain-Stem, Cerebellar-White-Matter-Right
-        wmparcWMstructures = [7, 16, 46]
-        # Left-Cerebellar-Cortex, Right-Cerebellar-Cortex, Thalamus-Left, Caudate-Left
-        # Putamen-Left, Pallidum-Left, Hippocampus-Left, Amygdala-Left, Accumbens-Left 
-        # Diencephalon-Ventral-Left, Thalamus-Right, Caudate-Right, Putamen-Right
-        # Pallidum-Right, Hippocampus-Right, Amygdala-Right, Accumbens-Right
-        # Diencephalon-Ventral-Right
-        wmparcGMstructures = [8, 47, 10, 11, 12, 13, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60]
-        # Fornix, CC-Posterior, CC-Mid-Posterior, CC-Central, CC-Mid-Anterior, CC-Anterior
-        wmparcCCstructures = [250, 251, 252, 253, 254, 255]
-        # Left-Lateral-Ventricle, Left-Inf-Lat-Vent, 3rd-Ventricle, 4th-Ventricle, CSF
-        # Left-Choroid-Plexus, Right-Lateral-Ventricle, Right-Inf-Lat-Vent, Right-Choroid-Plexus
-        wmparcCSFstructures = [4, 5, 14, 15, 24, 31, 43, 44, 63]
-        
-        # make masks
-        WMmask = np.double(np.logical_and(np.logical_and(np.logical_or(np.logical_or(np.in1d(ribbon, ribbonWMstructures),
-                                                                              np.in1d(wmparc, wmparcWMstructures)),
-                                                                np.in1d(wmparc, wmparcCCstructures)),
-                                                  np.logical_not(np.in1d(wmparc, wmparcCSFstructures))),
-                                   np.logical_not(np.in1d(wmparc, wmparcGMstructures))))
-        CSFmask = np.double(np.in1d(wmparc, wmparcCSFstructures))
-        GMmask = np.double(np.logical_or(np.in1d(ribbon,ribbonGMstrucures),np.in1d(wmparc,wmparcGMstructures)))
-        
-        # write masks
-        ref = nib.load(wmparcFileout)
-        img = nib.Nifti1Image(WMmask.reshape(ref.shape).astype('<f4'), ref.affine)
-        nib.save(img, WMmaskFileout)
-        
-        img = nib.Nifti1Image(CSFmask.reshape(ref.shape).astype('<f4'), ref.affine)
-        nib.save(img, CSFmaskFileout)
-        
-        img = nib.Nifti1Image(GMmask.reshape(ref.shape).astype('<f4'), ref.affine)
-        nib.save(img, GMmaskFileout)
-        
-        # delete temporary files
-        cmd = 'rm {} {} {}'.format(eyeMat, ribbonMat, wmparcMat)
-        call(cmd,shell=True)
-        
+ 
+            # Left-Cerebral-White-Matter, Right-Cerebral-White-Matter
+            ribbonWMstructures = [2, 41]
+            # Left-Cerebral-Cortex, Right-Cerebral-Cortex
+            ribbonGMstrucures = np.concatenate([np.arange(1006,1036), np.arange(2000,2036)])
+            # Cerebellar-White-Matter-Left, Brain-Stem, Cerebellar-White-Matter-Right
+            wmparcWMstructures = [7, 16, 46]
+            # Left-Cerebellar-Cortex, Right-Cerebellar-Cortex, Thalamus-Left, Caudate-Left
+            # Putamen-Left, Pallidum-Left, Hippocampus-Left, Amygdala-Left, Accumbens-Left 
+            # Diencephalon-Ventral-Left, Thalamus-Right, Caudate-Right, Putamen-Right
+            # Pallidum-Right, Hippocampus-Right, Amygdala-Right, Accumbens-Right
+            # Diencephalon-Ventral-Right
+            wmparcGMstructures = [3, 42, 8, 47, 10, 11, 12, 13, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60]
+            # Fornix, CC-Posterior, CC-Mid-Posterior, CC-Central, CC-Mid-Anterior, CC-Anterior
+            wmparcCCstructures = [250, 251, 252, 253, 254, 255]
+            # Left-Lateral-Ventricle, Left-Inf-Lat-Vent, 3rd-Ventricle, 4th-Ventricle, CSF
+            # Left-Choroid-Plexus, Right-Lateral-Ventricle, Right-Inf-Lat-Vent, Right-Choroid-Plexus
+            wmparcCSFstructures = [4, 5, 14, 15, 24, 31, 43, 44, 63]
+            
+            # make masks
+            WMmask = np.double(np.logical_and(np.logical_and(np.logical_or(np.logical_or(np.in1d(ribbon, ribbonWMstructures),
+                                                                                  np.in1d(wmparc, wmparcWMstructures)),
+                                                                    np.in1d(wmparc, wmparcCCstructures)),
+                                                      np.logical_not(np.in1d(wmparc, wmparcCSFstructures))),
+                                       np.logical_not(np.in1d(wmparc, wmparcGMstructures))))
+            CSFmask = np.double(np.in1d(wmparc, wmparcCSFstructures))
+            GMmask = np.double(np.logical_or(np.in1d(ribbon,ribbonGMstrucures),np.in1d(wmparc,wmparcGMstructures)))
+
+            # write masks
+            ref = nib.load(wmparcFileout)
+            img = nib.Nifti1Image(WMmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, WMmaskFileout)
+            
+            img = nib.Nifti1Image(CSFmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, CSFmaskFileout)
+            
+            img = nib.Nifti1Image(GMmask.reshape(ref.shape).astype('<f4'), ref.affine)
+            nib.save(img, GMmaskFileout)
+            
+            # delete temporary files
+            cmd = 'rm {} {}'.format(eyeMat, wmparcMat)
+            call(cmd,shell=True)
+
+        else: # only fmriprep
+            wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-WM_probseg.nii.gz')
+            gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-GM_probseg.nii.gz')
+            csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-CSF_probseg.nii.gz')
+
+            # load nii 
+            ref = nib.load(wmFilein)
+ 
+            WMnii = np.asarray(nib.load(wmFilein).dataobj)
+            GMnii = np.asarray(nib.load(gmFilein).dataobj)
+            CSFnii = np.asarray(nib.load(csfFilein).dataobj)
+            WMnii = np.double(WMnii > maskThreshold)
+            GMnii = np.double(GMnii > maskThreshold)
+            CSFnii = np.double(CSFnii > maskThreshold)
+            WMnii = nib.Nifti1Image(WMnii.reshape(ref.shape).astype('<f4'), ref.affine)
+            GMnii = nib.Nifti1Image(GMnii.reshape(ref.shape).astype('<f4'), ref.affine)
+            CSFnii = nib.Nifti1Image(CSFnii.reshape(ref.shape).astype('<f4'), ref.affine)
+            
+            ref = nib.load(fmriFile)
+            WMmask = image.resample_to_img(WMnii, ref, interpolation='nearest')
+            GMmask = image.resample_to_img(GMnii, ref, interpolation='nearest')
+            CSFmask = image.resample_to_img(CSFnii, ref, interpolation='nearest')
+
+            WMmask = np.asarray(WMmask.dataobj)
+            GMmask = np.asarray(GMmask.dataobj)
+            CSFmask = np.asarray(CSFmask.dataobj)
+
+            # write masks
+            img = nib.Nifti1Image(WMmask.reshape(ref.shape[:3]).astype('<f4'), ref.affine)
+            nib.save(img, WMmaskFileout)
+            
+            img = nib.Nifti1Image(CSFmask.reshape(ref.shape[:3]).astype('<f4'), ref.affine)
+            nib.save(img, CSFmaskFileout)
+            
+            img = nib.Nifti1Image(GMmask.reshape(ref.shape[:3]).astype('<f4'), ref.affine)
+            nib.save(img, GMmaskFileout)
+            
         
     tmpWM = nib.load(WMmaskFileout)
     nRows, nCols, nSlices = tmpWM.header.get_data_shape()
@@ -480,7 +607,8 @@ def makeTissueMasks(overwrite=False,precomputed=False):
 
     return maskAll, maskWM_, maskCSF_, maskGM_
 
-def extract_noise_components(niiImg, WMmask, CSFmask, num_components=5, flavor=None):
+
+def extract_noise_components(niiImg=None, WMmask=None, CSFmask=None, num_components=6, flavor=None):
     """
     Largely based on https://github.com/nipy/nipype/blob/master/examples/
     rsfmri_vol_surface_preprocessing_nipy.py#L261
@@ -495,9 +623,14 @@ def extract_noise_components(niiImg, WMmask, CSFmask, num_components=5, flavor=N
     -------
     components: n_time_points x regressors
     """
-    if flavor == 'WMCSF' or flavor == None:
+    if flavor == 'fmriprep' or flavor == None:
+        data = get_confounds()
+        if num_components == 0:
+            components = np.array(data.filter(regex=("a_comp_cor_*")))
+        else:
+            components = np.array(data.filter(regex=("a_comp_cor_*")))[:,:num_components]
+    if flavor == 'WMCSF':
         niiImgWMCSF = niiImg[np.logical_or(WMmask,CSFmask),:] 
-
         niiImgWMCSF[np.isnan(np.sum(niiImgWMCSF, axis=1)), :] = 0
         # remove mean and normalize by variance
         # voxel_timecourses.shape == [nvoxels, time]
@@ -586,57 +719,6 @@ def timestamp():
    milliseconds = '%03d' % int((now - int(now)) * 1000)
    return strftime('%Y%m%d%H%M%S', loctime) + milliseconds
 
-def prepareJobArrayFromJobList():
-    config.tStamp = timestamp()
-    # make directory
-    mkdir('tmp{}'.format(config.tStamp))
-    # write a temporary file with the list of scripts to execute as an array job
-    with open(op.join('tmp{}'.format(config.tStamp),'scriptlist'),'w') as f:
-        f.write('\n'.join(config.scriptlist))
-    # write the .qsub file
-    with open(op.join('tmp{}'.format(config.tStamp),'qsub'),'w') as f:
-        f.write('#!/bin/bash\n')
-        f.write('#$ -S /bin/bash\n')
-        f.write('#$ -t 1-{} -tc 7\n'.format(len(config.scriptlist)))
-        f.write('#$ -cwd -V -N tmp{}\n'.format(config.tStamp))
-        f.write('#$ -e {}\n'.format(op.join('tmp{}'.format(config.tStamp),'err')))
-        f.write('#$ -o {}\n'.format(op.join('tmp{}'.format(config.tStamp),'out')))
-        f.write('#$ {}\n'.format(config.sgeopts))
-        f.write('SCRIPT=$(awk "NR==$SGE_TASK_ID" {})\n'.format(op.join('tmp{}'.format(config.tStamp),'scriptlist')))
-        f.write('bash $SCRIPT\n')
-    strCommand = 'qsub {}'.format(op.join('tmp{}'.format(config.tStamp),'qsub'))
-    # write down the command to a file in the job folder
-    with open('cmd','w+') as f:
-        f.write(strCommand+'\n')
-    
-    config.scriptlist = []
-    return
-
-## 
-#  @brief Submit jobs with sge qsub
-#      
-def fnSubmitToCluster(strScript, strJobFolder, strJobUID, resources='-l mem_free=25G -pe openmp 6', specifyqueue='long.q'):
-    # clean up .o and .e
-    tmpfname = op.join(strJobFolder,strJobUID)
-    try: 
-        remove(tmpfname+'.e')
-    except OSError: 
-        pass
-    try: 
-        remove(tmpfname+'.o')  
-    except OSError: 
-        pass    
-   
-    strCommand = 'qsub {} -cwd -V {} -N {} -e {} -o {} {}'.format(specifyqueue,resources,strJobUID,
-                      op.join(strJobFolder,strJobUID+'.e'), op.join(strJobFolder,strJobUID+'.o'), strScript)
-    # write down the command to a file in the job folder
-    with open(op.join(strJobFolder,strJobUID+'.cmd'),'w+') as hFileID:
-        hFileID.write(strCommand+'\n')
-    # execute the command
-    cmdOut = check_output(strCommand, shell=True)
-    return cmdOut.split()[2]    
-
-
 ## 
 #  @brief Submit array of jobs with sge qsub (needs to be customized)
 #  
@@ -649,30 +731,30 @@ def fnSubmitJobArrayFromJobList():
         f.write('\n'.join(config.scriptlist))
     # write the .qsub file
     with open(op.join('tmp{}'.format(config.tStamp),'qsub'),'w') as f:
-        f.write('#!/bin/bash\n')
+        f.write('#!/bin/sh\n')
         f.write('#$ -S /bin/bash\n')
-        f.write('#$ -t 1-{} -tc 8\n'.format(len(config.scriptlist)))
+        f.write('#$ -t 1-{}\n'.format(len(config.scriptlist)))
         f.write('#$ -cwd -V -N tmp{}\n'.format(config.tStamp))
         f.write('#$ -e {}\n'.format(op.join('tmp{}'.format(config.tStamp),'err')))
         f.write('#$ -o {}\n'.format(op.join('tmp{}'.format(config.tStamp),'out')))
         f.write('#$ {}\n'.format(config.sgeopts))
         f.write('SCRIPT=$(awk "NR==$SGE_TASK_ID" {})\n'.format(op.join('tmp{}'.format(config.tStamp),'scriptlist')))
         f.write('bash $SCRIPT\n')
-    strCommand = 'qsub {}'.format(op.join('tmp{}'.format(config.tStamp),'qsub'))
+    strCommand = 'cd {};qsub {}'.format(getcwd(),op.join('tmp{}'.format(config.tStamp),'qsub'))
     #strCommand = 'ssh csclprd3s1 "cd {};qsub {}"'.format(getcwd(),op.join('tmp{}'.format(config.tStamp),'qsub'))
     # write down the command to a file in the job folder
     with open(op.join('tmp{}'.format(config.tStamp),'cmd'),'w+') as f:
         f.write(strCommand+'\n')
     # execute the command
     cmdOut = check_output(strCommand, shell=True)
-    
     config.scriptlist = []
     return cmdOut.split()[2]    
 
 ## 
 #  @brief Submit jobs with sge qsub
 #      
-def fnSubmitToCluster(strScript, strJobFolder, strJobUID, resources='-l mem_free=25G -pe openmp 6', specifyqueue='long.q'):
+def fnSubmitToCluster(strScript, strJobFolder, strJobUID, resources):
+    specifyqueue = ''
     # clean up .o and .e
     tmpfname = op.join(strJobFolder,strJobUID)
     try: 
@@ -714,8 +796,14 @@ def sorted_ls(path, reverseOrder):
 #  @param [bool] useMostRecent True if most recent files should be checked first
 #  @return [str] preprocessed image file name if exists, None otherwise
 #  	
-def checkXML(inFile, operations, params, resDir, isCifti=False, useMostRecent=True):
+def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, useMostRecent=True):
     fileList = sorted_ls(resDir, useMostRecent)
+    if isCifti:
+        ext = '.dtseries.nii' 
+    if isGifti:
+        ext = '.func.gii' 
+    else: 
+        ext = '.nii.gz'
     for xfile in fileList:
         if fnmatch.fnmatch(op.join(resDir,xfile), op.join(resDir,'????????.xml')):
             tree = ET.parse(op.join(resDir,xfile))
@@ -740,7 +828,9 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, useMostRecent=Tr
                 continue
             else:    
                 rcode = xfile.replace('.xml','')
-                return op.join(resDir,config.fmriRun+'_prepro_'+rcode+config.ext)
+                prefix = config.session+'_' if  hasattr(config,'session')  else ''
+                
+                return op.join(resDir,config.subject+'_'+prefix+config.fmriRun+'_prepro_'+rcode+ext)
     return None
 	
 ## 
@@ -750,10 +840,12 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, useMostRecent=Tr
 #  @return [str] string identifier
 #  
 def get_rcode(mystring):
-    if not config.isCifti:
-        return re.search('.*_(........)\.nii.gz', mystring).group(1)
-    else:
+    if config.isCifti:
         return re.search('.*_(........)\.dtseries.nii', mystring).group(1)
+    elif config.isGifti:
+        return re.search('.*_(........)\.func.gii', mystring).group(1)
+    else:
+        return re.search('.*_(........)\.nii.gz', mystring).group(1)
 
 def _make_gen(reader):
     b = reader(1024 * 1024)
@@ -765,377 +857,6 @@ def rawgencount(filename):
     f = open(filename, 'rb')
     f_gen = _make_gen(f.read)
     return sum( buf.count(b'\n') for buf in f_gen )        
-
-"""
-The following functions implement the ICA-AROMA algorithm (Pruim et al. 2015) 
-and are adapted from https://github.com/rhr-pruim/ICA-AROMA
-"""
-
-def feature_time_series(melmix, mc):
-    """ This function extracts the maximum RP correlation feature scores. 
-    It determines the maximum robust correlation of each component time-series 
-    with a model of 72 realigment parameters.
-
-    Parameters
-    ---------------------------------------------------------------------------------
-    melmix:     Full path of the melodic_mix text file
-    mc:     Full path of the text file containing the realignment parameters
-    
-    Returns
-    ---------------------------------------------------------------------------------
-    maxRPcorr:  Array of the maximum RP correlation feature scores for the components of the melodic_mix file"""
-
-    # Read melodic mix file (IC time-series), subsequently define a set of squared time-series
-    mix = np.loadtxt(melmix)
-    mixsq = np.power(mix,2)
-
-    # Read motion parameter file
-    RP6 = np.loadtxt(mc)[:,:6]
-
-    # Determine the derivatives of the RPs (add zeros at time-point zero)
-    RP6_der = np.array(RP6[list(range(1,RP6.shape[0])),:] - RP6[list(range(0,RP6.shape[0]-1)),:])
-    RP6_der = np.concatenate((np.zeros((1,6)),RP6_der),axis=0)
-
-    # Create an RP-model including the RPs and its derivatives
-    RP12 = np.concatenate((RP6,RP6_der),axis=1)
-
-    # Add the squared RP-terms to the model
-    RP24 = np.concatenate((RP12,np.power(RP12,2)),axis=1)
-
-    # Derive shifted versions of the RP_model (1 frame for and backwards)
-    RP24_1fw = np.concatenate((np.zeros((1,24)),np.array(RP24[list(range(0,RP24.shape[0]-1)),:])),axis=0)
-    RP24_1bw = np.concatenate((np.array(RP24[list(range(1,RP24.shape[0])),:]),np.zeros((1,24))),axis=0)
-
-    # Combine the original and shifted mot_pars into a single model
-    RP_model = np.concatenate((RP24,RP24_1fw,RP24_1bw),axis=1)
-
-    # Define the column indices of respectively the squared or non-squared terms
-    idx_nonsq = np.array(np.concatenate((list(range(0,12)), list(range(24,36)), list(range(48,60))),axis=0))
-    idx_sq = np.array(np.concatenate((list(range(12,24)), list(range(36,48)), list(range(60,72))),axis=0))
-
-    # Determine the maximum correlation between RPs and IC time-series
-    nSplits=int(1000)
-    maxTC = np.zeros((nSplits,mix.shape[1]))
-    for i in range(0,nSplits):
-        # Get a random set of 90% of the dataset and get associated RP model and IC time-series matrices
-        idx = np.array(random.sample(list(range(0,mix.shape[0])),int(round(0.9*mix.shape[0]))))
-        RP_model_temp = RP_model[idx,:]
-        mix_temp = mix[idx,:]
-        mixsq_temp = mixsq[idx,:]
-
-        # Calculate correlation between non-squared RP/IC time-series
-        RP_model_nonsq = RP_model_temp[:,idx_nonsq]
-        cor_nonsq = np.array(np.zeros((mix_temp.shape[1],RP_model_nonsq.shape[1])))
-        for j in range(0,mix_temp.shape[1]):
-            for k in range(0,RP_model_nonsq.shape[1]):
-                cor_temp = np.corrcoef(mix_temp[:,j],RP_model_nonsq[:,k])
-                cor_nonsq[j,k] = cor_temp[0,1]
-
-        # Calculate correlation between squared RP/IC time-series
-        RP_model_sq = RP_model_temp[:,idx_sq]
-        cor_sq = np.array(np.zeros((mix_temp.shape[1],RP_model_sq.shape[1])))
-        for j in range(0,mixsq_temp.shape[1]):
-            for k in range(0,RP_model_sq.shape[1]):
-                cor_temp = np.corrcoef(mixsq_temp[:,j],RP_model_sq[:,k])
-                cor_sq[j,k] = cor_temp[0,1]
-
-        # Combine the squared an non-squared correlation matrices
-        corMatrix = np.concatenate((cor_sq,cor_nonsq),axis=1)
-
-        # Get maximum absolute temporal correlation for every IC
-        corMatrixAbs = np.abs(corMatrix)
-        maxTC[i,:] = corMatrixAbs.max(axis=1)
-
-    # Get the mean maximum correlation over all random splits
-    maxRPcorr = maxTC.mean(axis=0)
-
-    # Return the feature score
-    return maxRPcorr
-
-def feature_frequency(melFTmix, TR):
-    """ 
-    Taken from https://github.com/rhr-pruim/ICA-AROMA
-    This function extracts the high-frequency content feature scores. 
-    It determines the frequency, as fraction of the Nyquist frequency, 
-    at which the higher and lower frequencies explain half of the total power between 0.01Hz and Nyquist. 
-    
-    Parameters
-    ---------------------------------------------------------------------------------
-    melFTmix:   Full path of the melodic_FTmix text file
-    TR:     TR (in seconds) of the fMRI data (float)
-    
-    Returns
-    ---------------------------------------------------------------------------------
-    HFC:        Array of the HFC ('High-frequency content') feature scores for the components of the melodic_FTmix file"""
-
-    
-    # Determine sample frequency
-    Fs = old_div(1,TR)
-
-    # Determine Nyquist-frequency
-    Ny = old_div(Fs,2)
-        
-    # Load melodic_FTmix file
-    FT=np.loadtxt(melFTmix)
-
-    # Determine which frequencies are associated with every row in the melodic_FTmix file  (assuming the rows range from 0Hz to Nyquist)
-    f = Ny*(np.array(list(range(1,FT.shape[0]+1))))/(FT.shape[0])
-
-    # Only include frequencies higher than 0.01Hz
-    fincl = np.squeeze(np.array(np.where( f > 0.01 )))
-    FT=FT[fincl,:]
-    f=f[fincl]
-
-    # Set frequency range to [0-1]
-    f_norm = old_div((f-0.01),(Ny-0.01))
-
-    # For every IC; get the cumulative sum as a fraction of the total sum
-    fcumsum_fract = old_div(np.cumsum(FT,axis=0), np.sum(FT,axis=0))
-
-    # Determine the index of the frequency with the fractional cumulative sum closest to 0.5
-    idx_cutoff=np.argmin(np.abs(fcumsum_fract-0.5),axis=0)
-
-    # Now get the fractions associated with those indices index, these are the final feature scores
-    HFC = f_norm[idx_cutoff]
-         
-    # Return feature score
-    return HFC
-
-def feature_spatial(fslDir, tempDir, aromaDir, melIC):
-    """ 
-    Taken from https://github.com/rhr-pruim/ICA-AROMA
-    This function extracts the spatial feature scores. 
-    For each IC it determines the fraction of the mixture modeled thresholded Z-maps 
-    respecitvely located within the CSF or at the brain edges, using predefined standardized masks.
-
-    Parameters
-    ---------------------------------------------------------------------------------
-    fslDir:     Full path of the bin-directory of FSL
-    tempDir:    Full path of a directory where temporary files can be stored (called 'temp_IC.nii.gz')
-    aromaDir:   Full path of the ICA-AROMA directory, containing the mask-files (mask_edge.nii.gz, mask_csf.nii.gz & mask_out.nii.gz) 
-    melIC:      Full path of the nii.gz file containing mixture-modeled threholded (p>0.5) Z-maps, registered to the MNI152 2mm template
-    
-    Returns
-    ---------------------------------------------------------------------------------
-    edgeFract:  Array of the edge fraction feature scores for the components of the melIC file
-    csfFract:   Array of the CSF fraction feature scores for the components of the melIC file"""
-
-    EDGEmaskFileout = op.join(outpath(), 'EDGEmask.nii')
-
-    if not op.isfile(EDGEmaskFileout):
-        WMmaskFileout = op.join(outpath(), 'WMmask.nii')
-        CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
-        GMmaskFileout = op.join(outpath(), 'GMmask.nii')
-        OUTmaskFileout = op.join(outpath(), 'OUTmask.nii')
-
-        tmpWM = nib.load(WMmaskFileout)
-        nRows, nCols, nSlices = tmpWM.header.get_data_shape()
-        tmpCSF = nib.load(CSFmaskFileout)
-        tmpGM = nib.load(GMmaskFileout)
-        maskGM = np.asarray(tmpGM.dataobj).reshape(nRows*nCols*nSlices, order='F') > 0
-
-        GMWMmask = np.logical_or(tmpWM.dataobj,tmpGM.dataobj)
-        ALLmask = np.logical_or(GMWMmask, tmpCSF.dataobj)
-        ALLclose = binary_closing(ALLmask,structure=generate_binary_structure(3,4))
-        OUTmask = binary_erosion(np.logical_not(ALLclose),structure=generate_binary_structure(3,2),border_value=1)
-        OUTmask = binary_opening(OUTmask,structure=generate_binary_structure(3,2))
-        img = nib.Nifti1Image(OUTmask.astype('<f4'), tmpWM.affine)
-        nib.save(img, OUTmaskFileout)
-
-        OUTdil = binary_dilation(OUTmask, structure=generate_binary_structure(3,5),iterations=2)
-        GMWMdil = binary_dilation(GMWMmask, structure=generate_binary_structure(3,5))
-        CSFdil = binary_dilation(tmpCSF.dataobj, structure=generate_binary_structure(3,5),iterations=2)
-        CSFero = binary_erosion(CSFdil, iterations=4)
-        EDGEmask = np.logical_or(binary_opening(np.logical_and(CSFdil,GMWMdil)),binary_closing(np.logical_and(GMWMdil,OUTdil)))
-        EDGEmask = np.logical_and(EDGEmask, binary_opening(np.logical_not(CSFero)))
-        img = nib.Nifti1Image(EDGEmask.astype('<f4'), tmpWM.affine)
-        nib.save(img, EDGEmaskFileout)
-
-    # Get the number of ICs
-    numICs = int(getoutput('%sfslinfo %s | grep dim4 | head -n1 | awk \'{print $2}\'' % (fslDir, melIC) ))
-
-    # Loop over ICs
-    edgeFract=np.zeros(numICs)
-    csfFract=np.zeros(numICs)
-    for i in range(0,numICs):
-        # Define temporary IC-file
-        tempIC = op.join(tempDir,'temp_IC.nii.gz')
-
-        # Extract IC from the merged melodic_IC_thr2MNI2mm file
-        os.system(' '.join([op.join(fslDir,'fslroi'),
-            melIC,
-            tempIC,
-            str(i),
-            '1']))
-
-        # Change to absolute Z-values
-        os.system(' '.join([op.join(fslDir,'fslmaths'),
-            tempIC,
-            '-abs',
-            tempIC]))
-        
-        # Get sum of Z-values within the total Z-map (calculate via the mean and number of non-zero voxels)
-        totVox = int(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-V | awk \'{print $1}\''])))
-        
-        if not (totVox == 0):
-            totMean = float(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-M'])))
-        else:
-            print('     - The spatial map of component ' + str(i+1) + ' is empty. Please check!')
-            totMean = 0
-
-        totSum = totMean * totVox
-        
-        # Get sum of Z-values of the voxels located within the CSF (calculate via the mean and number of non-zero voxels)
-        csfVox = int(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/CSFmask.nii'.format(aromaDir),
-                            '-V | awk \'{print $1}\''])))
-
-        if not (csfVox == 0):
-            csfMean = float(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/CSFmask.nii'.format(aromaDir),
-                            '-M'])))
-        else:
-            csfMean = 0
-
-        csfSum = csfMean * csfVox   
-
-        # Get sum of Z-values of the voxels located within the Edge (calculate via the mean and number of non-zero voxels)
-        edgeVox = int(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/EDGEmask.nii'.format(aromaDir),
-                            '-V | awk \'{print $1}\''])))
-        if not (edgeVox == 0):
-            edgeMean = float(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/EDGEmask.nii'.format(aromaDir),
-                            '-M'])))
-        else:
-            edgeMean = 0
-        
-        edgeSum = edgeMean * edgeVox
-
-        # Get sum of Z-values of the voxels located outside the brain (calculate via the mean and number of non-zero voxels)
-        outVox = int(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/OUTmask.nii'.format(aromaDir),
-                            '-V | awk \'{print $1}\''])))
-        if not (outVox == 0):
-            outMean = float(getoutput(' '.join([op.join(fslDir,'fslstats'),
-                            tempIC,
-                            '-k {}/OUTmask.nii'.format(aromaDir),
-                            '-M'])))
-        else:
-            outMean = 0
-        
-        outSum = outMean * outVox
-
-        # Determine edge and CSF fraction
-        if not (totSum == 0):
-            edgeFract[i] = old_div((outSum + edgeSum),(totSum - csfSum))
-            csfFract[i] = old_div(csfSum, totSum)
-        else:
-            edgeFract[i]=0
-            csfFract[i]=0
-
-    # Remove the temporary IC-file
-    remove(tempIC)
-
-    # Return feature scores
-    return edgeFract, csfFract
-
-def classification(outDir, maxRPcorr, edgeFract, HFC, csfFract):
-    """ 
-    Taken from https://github.com/rhr-pruim/ICA-AROMA
-    This function classifies a set of components into motion and non-motion 
-    components based on four features; maximum RP correlation, high-frequency content, 
-    edge-fraction and CSF-fraction
-
-    Parameters
-    ---------------------------------------------------------------------------------
-    outDir:     Full path of the output directory
-    maxRPcorr:  Array of the 'maximum RP correlation' feature scores of the components
-    edgeFract:  Array of the 'edge fraction' feature scores of the components
-    HFC:        Array of the 'high-frequency content' feature scores of the components
-    csfFract:   Array of the 'CSF fraction' feature scores of the components
-
-    Return
-    ---------------------------------------------------------------------------------
-    motionICs   Array containing the indices of the components identified as motion components
-
-    Output (within the requested output directory)
-    ---------------------------------------------------------------------------------
-    classified_motion_ICs.txt   A text file containing the indices of the components identified as motion components """
-
-    # Classify the ICs as motion or non-motion
-
-    # Define criteria needed for classification (thresholds and hyperplane-parameters)
-    thr_csf = 0.10
-    thr_HFC = 0.35
-    hyp = np.array([-19.9751070082159, 9.95127547670627, 24.8333160239175])
-    
-    # Project edge & maxRPcorr feature scores to new 1D space
-    x = np.array([maxRPcorr, edgeFract])
-    proj = hyp[0] + np.dot(x.T,hyp[1:])
-
-    # Classify the ICs
-    motionICs = np.squeeze(np.array(np.where((proj > 0) + (csfFract > thr_csf) + (HFC > thr_HFC))))
-
-    return motionICs
-
-def denoising(fslDir, inFile, outDir, melmix, denType, denIdx):
-    """ 
-    Taken from https://github.com/rhr-pruim/ICA-AROMA
-    This function classifies the ICs based on the four features; maximum RP correlation, high-frequency content, edge-fraction and CSF-fraction
-
-    Parameters
-    ---------------------------------------------------------------------------------
-    fslDir:     Full path of the bin-directory of FSL
-    inFile:     Full path to the data file (nii.gz) which has to be denoised
-    outDir:     Full path of the output directory
-    melmix:     Full path of the melodic_mix text file
-    denType:    Type of requested denoising ('aggr': aggressive, 'nonaggr': non-aggressive, 'both': both aggressive and non-aggressive 
-    denIdx:     Indices of the components that should be regressed out
-
-    Output (within the requested output directory)
-    ---------------------------------------------------------------------------------
-    denoised_func_data_<denType>.nii.gz:        A nii.gz file of the denoised fMRI data"""
-
-    # Check if denoising is needed (i.e. are there components classified as motion)
-    check = len(denIdx) > 0
-
-    if check==1:
-        # Put IC indices into a char array
-        denIdxStr = np.char.mod('%i',(denIdx+1))
-
-        # Non-aggressive denoising of the data using fsl_regfilt (partial regression), if requested
-        if (denType == 'nonaggr') or (denType == 'both'):       
-            os.system(' '.join([op.join(fslDir,'fsl_regfilt'),
-                '--in=' + inFile,
-                '--design=' + melmix,
-                '--filter="' + ','.join(denIdxStr) + '"',
-                '--out=' + op.join(outDir,'denoised_func_data_nonaggr.nii.gz')]))
-
-        # Aggressive denoising of the data using fsl_regfilt (full regression)
-        if (denType == 'aggr') or (denType == 'both'):
-            os.system(' '.join([op.join(fslDir,'fsl_regfilt'),
-                '--in=' + inFile,
-                '--design=' + melmix,
-                '--filter="' + ','.join(denIdxStr) + '"',
-                '--out=' + op.join(outDir,'denoised_func_data_aggr.nii.gz'),
-                '-a']))
-    else:
-        print("  - None of the components was classified as motion, so no denoising is applied (a symbolic link to the input file will be created).")
-        if (denType == 'nonaggr') or (denType == 'both'):
-            os.symlink(inFile,op.join(outDir,'denoised_func_data_nonaggr.nii.gz'))
-        if (denType == 'aggr') or (denType == 'both'):
-            os.symlink(inFile,op.join(outDir,'denoised_func_data_aggr.nii.gz'))
-
 
 ## 
 #  @brief Replace censored time point by linear interpolation
@@ -1204,7 +925,7 @@ def interpolate(data,censored,TR,nTRs,method='linear'):
             intpts = H[censored]
             tseries[censored] = intpts
             data[i,:] = tseries
-        elif method == 'astropy':
+        elif method == 'astropy': 
             lombs = LombScargle(tpoints*TR, cens_tseries)
             frequency, power = lombs.autopower(normalization='standard', samples_per_peak=8, nyquist_factor=1, method='fast')
             pwsort = np.argsort(power)
@@ -1228,7 +949,30 @@ def interpolate(data,censored,TR,nTRs,method='linear'):
             break
     return data
 
-def retrieve_preprocessed(inputFile, operations, outputDir, isCifti):
+#  @brief Builds affine transformation matrix from rotations, translations and scaling parameters
+#  
+#  @param  [numpy.array] 3 rotation parameters (in radians)
+#  @param  [numpy.array] 3 translation parameters (in mm)
+#  @param  [numpy.array] 3 scaling parameters (if None, no scaling)
+#  @return [numpy.array] 4x4 affine transformation matrix
+#   
+def get_affine(R, T, S=None):
+    if S is None:
+        S_3x3 = np.eye(3)
+    else:
+        S_3x3 = np.diag(S)
+
+    thetaX = R[0]
+    thetaY = R[1]
+    thetaZ = R[2]
+    Rx = np.vstack(([1,0,0], [0, np.cos(thetaX), np.sin(thetaX)], [0, -np.sin(thetaX), np.cos(thetaX)])) 
+    Ry = np.vstack([[np.cos(thetaY), 0, -np.sin(thetaY)],[0, 1, 0],[np.sin(thetaY), 0, np.cos(thetaY)]])
+    Rz = np.vstack(([np.cos(thetaZ), np.sin(thetaZ), 0],[-np.sin(thetaZ), np.cos(thetaZ), 0],[0,0,1]))
+    R_3x3 = np.dot(np.dot(Rx,Ry),Rz) 
+    M = np.vstack((np.hstack((np.dot(R_3x3,S_3x3), T.reshape(-1,1))),[0,0,0,1]))
+    return M
+
+def retrieve_preprocessed(inputFile, operations, outputDir, isCifti, isGifti=False):
     if not op.isfile(inputFile):
         print(inputFile, 'missing')
         sys.stdout.flush()
@@ -1269,8 +1013,8 @@ def retrieve_preprocessed(inputFile, operations, outputDir, isCifti):
                 steps[cstep].append(opr[0])
                 Flavors[cstep].append(opr[2])
             prev_step = opr[1]                
-    precomputed = checkXML(inputFile,steps,Flavors,outputDir,isCifti) 
-    return precomputed 																								 
+    precomputed = checkXML(inputFile,steps,Flavors,outputDir,isCifti,isGifti) 
+    return precomputed 
 
 def correlationKernel(X1, X2):
     """(Pre)calculates Gram Matrix K"""
@@ -1280,19 +1024,6 @@ def correlationKernel(X1, X2):
         for j, x2 in enumerate(X2):
             gram_matrix[i, j] = stats.pearsonr(x1, x2)[0]
     return gram_matrix
-
-def dctmtx(N):
-    """
-    Largely based on http://www.mrc-cbu.cam.ac.uk/wp-content/uploads/2013/01/rsfMRI_GLM.m
-    """
-    K=N
-    n = range(N)
-    C = np.zeros((len(n), K),dtype=np.float32)
-    C[:,0] = np.ones((len(n)),dtype=np.float32)/np.sqrt(N)
-    doublen = [2*x+1 for x in n]
-    for k in range(1,K):
-        C[:,k] = np.sqrt(2/N)*np.cos([np.pi*x*(k-1)/(2*N) for x in doublen])        
-    return C 
 
 def distcorr(X, Y):
     """ Compute the distance correlation function
@@ -1426,17 +1157,29 @@ def rank_variance_ratio(between, within):
     sorted_idx = np.argsort(ratio)
     return sorted_idx[::-1]
 
+def dctmtx(N):
+    """
+    Largely based on http://www.mrc-cbu.cam.ac.uk/wp-content/uploads/2013/01/rsfMRI_GLM.m
+    """
+    K=N
+    n = range(N)
+    C = np.zeros((len(n), K),dtype=np.float32)
+    C[:,0] = np.ones((len(n)),dtype=np.float32)/np.sqrt(N)
+    doublen = [2*x+1 for x in n]
+    for k in range(3,K):
+        C[:,k] = np.sqrt(2/N)*np.cos([np.pi*x*(k-1)/(2*N) for x in doublen])        
+    return C 
+
 # ---------------------
 # Pipeline Operations
 def TaskRegression(niiImg, flavor, masks, imgInfo):
-    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+    nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
     trials = get_EVs(buildpath(), flavor[0])
     # sometimes an EV is empty
     # need to drop it
     for k in trials.keys():
         if trials[k].shape[1]==1:
             trials.pop(k, None)
-    print(trials)
     frame_times = np.arange(nTRs) * TR
     d = {
         'onset' : np.hstack([trials[k][:,0] for k in trials.keys()]),
@@ -1451,119 +1194,74 @@ def TaskRegression(niiImg, flavor, masks, imgInfo):
     return np.array(DM)
 
 def MotionRegression(niiImg, flavor, masks, imgInfo):
-    # assumes that data is organized as in the HCP
-    motionFile = op.join(buildpath(), config.movementRegressorsFile)
-    data = np.genfromtxt(motionFile)
+    data = get_confounds()
     if flavor[0] == 'R':
-        X = data[:,:6]
+        X = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X[:,3:] = np.degrees(X[:,3:]) # as in HCP
+        X = signal.detrend(X,axis=0,type='constant') # demean
+        X = signal.detrend(X,axis=0,type='linear') # linear detrending
     elif flavor[0] == 'R dR':
-        X = data
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        X2 = np.vstack([np.zeros(6),np.apply_along_axis(np.diff,0,X1)])
+        X = np.hstack([X1,X2]) 
+        X = signal.detrend(X,axis=0,type='constant') # demean
+        X = signal.detrend(X,axis=0,type='linear') # linear detrending
     elif flavor[0] == 'R R^2':
-        data = data[:,:6]
-        data_squared = data ** 2
-        X = np.concatenate((data, data_squared), axis=1)
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        X2 = X1 ** 2
+        X = np.hstack([X1,X2]) 
+        X = signal.detrend(X,axis=0,type='constant') # demean
+        X = signal.detrend(X,axis=1,type='linear') # linear detrending
     elif flavor[0] == 'R dR R^2 dR^2':
-        data_squared = data ** 2
-        X = np.concatenate((data, data_squared), axis=1)
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        X2 = np.vstack([np.zeros(6),np.apply_along_axis(np.diff,0,X1)])
+        X12 = np.hstack([X1,X2]) 
+        X12 = signal.detrend(X12,axis=0,type='constant') # demean
+        X12 = signal.detrend(X12,axis=0,type='linear') # linear detrending
+        X34 = X12 ** 2
+        X = np.hstack([X12,X34]) 
     elif flavor[0] == 'R R^2 R-1 R-1^2':
-        data = data[:,:6]
-        data_roll = np.roll(data, 1, axis=0)
-        data_squared = data ** 2
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        data_roll = np.roll(X1, 1, axis=0)
+        data_squared = X1 ** 2
         data_roll[0] = 0
         data_roll_squared = data_roll ** 2
-        X = np.concatenate((data, data_squared, data_roll, data_roll_squared), axis=1)
+        X = np.concatenate((X1, data_squared, data_roll, data_roll_squared), axis=1)
     elif flavor[0] == 'R R^2 R-1 R-1^2 R-2 R-2^2':
-        data = data[:,:6]
-        data_roll = np.roll(data, 1, axis=0)
-        data_squared = data ** 2
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        data_roll = np.roll(X1, 1, axis=0)
+        data_squared = X1 ** 2
         data_roll[0] = 0
         data_roll_squared = data_roll ** 2
         data_roll2 = np.roll(data_roll, 1, axis=0)
         data_roll2[0] = 0
         data_roll2_squared = data_roll2 ** 2
-        X = np.concatenate((data, data_squared, data_roll, data_roll_squared, data_roll2, data_roll2_squared), axis=1)
+        X = np.concatenate((X1, data_squared, data_roll, data_roll_squared, data_roll2, data_roll2_squared), axis=1)
     elif flavor[0] == 'censoring':
-        nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+        nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
         X = np.empty((nTRs, 0))
-    elif flavor[0] == 'ICA-AROMA':
-        nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-        fslDir = op.join(environ["FSLDIR"],'bin','')
-        if hasattr(config,'melodicFolder'):
-            icaOut = op.join(buildpath(),config.melodicFolder)
-        else:
-            icaOut = op.join(outpath(), 'icaOut')
-            try:
-                mkdir(icaOut)
-            except OSError:
-                pass
-            if not op.isfile(op.join(icaOut,'melodic_IC.nii.gz')):
-                os.system(' '.join([os.path.join(fslDir,'melodic'),
-                    '--in=' + config.fmriFile, 
-                    '--outdir=' + icaOut, 
-                    '--dim=' + str(min(250,np.int(data.shape[0]/2))),
-                    '--Oall --nobet ',
-                    '--tr=' + str(TR)]))
-
-        melIC_MNI = op.join(icaOut,'melodic_IC.nii.gz')
-        mc = op.join(buildpath(), config.movementRegressorsFile)
-        melmix = op.join(icaOut,'melodic_mix')
-        melFTmix = op.join(icaOut,'melodic_FTmix')
-        
-        edgeFract, csfFract = feature_spatial(fslDir, icaOut, outpath(), melIC_MNI)
-        maxRPcorr = feature_time_series(melmix, mc)
-        HFC = feature_frequency(melFTmix, TR)
-        motionICs = classification(icaOut, maxRPcorr, edgeFract, HFC, csfFract)
-        
-        if motionICs.ndim > 0:
-            melmix = op.join(icaOut,'melodic_mix')
-            if len(flavor)>1:
-                denType = flavor[1]
-            else:
-                denType = 'aggr'
-            if denType == 'aggr':
-                X = np.loadtxt(melmix)[:,motionICs]
-            elif denType == 'nonaggr':  
-                # Partial regression
-                X = np.loadtxt(melmix)
-                # if filtering has already been performed, regressors need to be filtered too
-                if len(config.filtering)>0:
-                    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-                    X = filter_regressors(X, config.filtering, nTRs, TR)  
-
-                if config.doScrubbing:
-                    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-                    toCensor = np.loadtxt(op.join(outpath(), 'Censored_TimePoints_{}.txt'.format(config.pipelineName)), dtype=np.dtype(np.int32))
-                    npts = toCensor.size
-                    if npts==1:
-                        toCensor=np.reshape(toCensor,(npts,))
-                    toReg = np.zeros((nTRs, npts),dtype=np.float32)
-                    for i in range(npts):
-                        toReg[toCensor[i],i] = 1
-                    X = np.concatenate((X, toReg), axis=1)
-                    
-                nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-                niiImg[0] = partial_regress(niiImg[0], nTRs, TR, X, motionICs, config.preWhitening)
-                if niiImg[1] is not None:
-                    niiImg[1] = partial_regress(niiImg[1], nTRs, TR, X, motionICs, config.preWhitening)
-                return niiImg[0],niiImg[1]
-            else:
-                print('Warning! Wrong ICA-AROMA flavor. Using default full regression.')
-                X = np.loadtxt(melmix)[:,motionICs]
-        else:
-            print('ICA-AROMA: None of the components was classified as motion, so no denoising is applied.')
-            X = np.empty((nTRs, 0))
     else:
         print('Wrong flavor, using default regressors: R dR')
-        X = data
+        X1 = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        X1[:,3:] = np.degrees(X1[:,3:]) # as in HCP
+        X2 = np.vstack([np.zeros(6),np.apply_along_axis(np.diff,0,X1)])
+        X = np.hstack([X1,X2]) 
+        X = signal.detrend(X,axis=0,type='constant') # demean
+        X = signal.detrend(X,axis=0,type='linear') # linear detrending
         
     # if filtering has already been performed, regressors need to be filtered too
     if len(config.filtering)>0 and X.size > 0:
-        nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+        nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
         X = filter_regressors(X, config.filtering, nTRs, TR)  
         
     if config.doScrubbing:
-        nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-        toCensor = np.loadtxt(op.join(outpath(), 'Censored_TimePoints_{}.txt'.format(config.pipelineName)), dtype=np.dtype(np.int32))
+        nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
+        toCensor = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
         npts = toCensor.size
         if npts==1:
             toCensor=np.reshape(toCensor,(npts,))
@@ -1581,117 +1279,52 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
     - https://github.com/poldrack/fmriqa/blob/master/compute_fd.py
     """
     thr = flavor[1]
-    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+    nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
 
-    if flavor[0] == 'DVARS':
-        # pcSigCh
-        meanImg = np.mean(niiImg[0],axis=1)[:,np.newaxis]
-        close0 = np.where(meanImg < 1e5*np.finfo(np.float).eps)[0]
-        if close0.shape[0] > 0:
-            meanImg[close0,0] = np.max(np.abs(niiImg[0][close0,:]),axis=1)
-            niiImg[0][close0,:] = niiImg[0][close0,:] + meanImg[close0,:]
-        niiImg2 = 100 * (niiImg[0] - meanImg) / meanImg
-        niiImg2[np.where(np.isnan(niiImg2))] = 0
-        dt = np.diff(niiImg2, n=1, axis=1)
-        dt = np.concatenate((np.zeros((dt.shape[0],1),dtype=np.float32), dt), axis=1)
-        score = np.sqrt(np.mean(dt**2,0))        
+    if flavor[0] == 'FD':
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
         censored = np.where(score>thr)
-        np.savetxt(op.join(outpath(), '{}_{}.txt'.format(flavor[0],config.pipelineName)), score, delimiter='\n', fmt='%d')
-    elif flavor[0] == 'FD':
-        motionFile = op.join(buildpath(), config.movementRegressorsFile)
-        dmotpars = np.abs(np.genfromtxt(motionFile)[:,6:]) #derivatives
-        disp=dmotpars.copy()
-        disp[:,3:]=np.pi*config.headradius*2*(disp[:,3:]/360)
-        score=np.sum(disp,1)
-        censored = np.where(score>thr)
-        np.savetxt(op.join(outpath(), '{}_{}.txt'.format(flavor[0],config.pipelineName)), score, delimiter='\n', fmt='%d')
-    elif flavor[0] == 'FDmultiband':
-        n = int(np.round(2/TR))
-        nyq = 0.5*1/TR
-        low = 0.2/nyq
-        high = 0.5/nyq
-        i, u = signal.butter(10, [low,high], btype='bandstop')
-        motionFile = op.join(buildpath(), config.movementRegressorsFile)
-        motpars = np.abs(np.genfromtxt(motionFile)[:,:6]) 
-        motpars_detrend = signal.detrend(motpars, axis=0)
-        clean_motpars = signal.filtfilt(i,u,motpars_detrend,axis=0) 
-        dmotpars = np.vstack([np.zeros([n,6]),np.abs(clean_motpars[n:,:] - clean_motpars[:-n,:])])
-        dmotpars[:,3:6] = dmotpars[:,3:6]*50
-        score = np.sum(dmotpars,1)
-        censored = np.where(score>thr)
-        np.savetxt(op.join(outpath(), 'FDmultiband.txt'), score, delimiter='\n', fmt='%f')
-    elif flavor[0] == 'FD+DVARS':
-        motionFile = op.join(buildpath(), config.movementRegressorsFile)
-        dmotpars = np.abs(np.genfromtxt(motionFile)[:,6:]) #derivatives
-        disp=dmotpars.copy()
-        disp[:,3:]=np.pi*config.headradius*2*(disp[:,3:]/360)
-        score=np.sum(disp,1)
-        # pcSigCh
-        meanImg = np.mean(niiImg[0],axis=1)[:,np.newaxis]
-        close0 = np.where(meanImg < 1e5*np.finfo(np.float).eps)[0]
-        if close0.shape[0] > 0:
-            meanImg[close0,0] = np.max(np.abs(niiImg[0][close0,:]),axis=1)
-            niiImg[0][close0,:] = niiImg[0][close0,:] + meanImg[close0,:]
-        niiImg2 = 100 * (niiImg[0] - meanImg) / meanImg
-        niiImg2[np.where(np.isnan(niiImg2))] = 0
-        dt = np.diff(niiImg2, n=1, axis=1)
-        dt = np.concatenate((np.zeros((dt.shape[0],1),dtype=np.float32), dt), axis=1)
-        scoreDVARS = np.sqrt(np.mean(dt**2,0)) 
-        # as in Siegel et al. 2016
+    elif flavor[0] == 'FDclean':
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
         cleanFD = clean(score[:,np.newaxis], detrend=False, standardize=False, t_r=TR, low_pass=0.3)
-        thr2 = flavor[2]
-        censDVARS = scoreDVARS > (100+thr2)/100 * np.median(scoreDVARS)
-        censored = np.where(np.logical_or(np.ravel(cleanFD)>thr,censDVARS))
-        np.savetxt(op.join(outpath(), 'FD_{}.txt'.format(config.pipelineName)), cleanFD, delimiter='\n', fmt='%f')
-        np.savetxt(op.join(outpath(), 'DVARS_{}.txt'.format(config.pipelineName)), scoreDVARS, delimiter='\n', fmt='%f')
-    elif flavor[0] == 'FDmultiband-DVARS':
-        n = int(np.round(2/TR))
-        nyq = 0.5*1/TR
-        low = 0.2/nyq
-        high = 0.5/nyq
-        i, u = signal.butter(10, [low,high], btype='bandstop')
-        data = get_confounds() 
-        motionFile = op.join(buildpath(), config.movementRegressorsFile)
-        motpars = np.abs(np.genfromtxt(motionFile)[:,:6]) 
-        motpars_detrend = signal.detrend(motpars, axis=0)
-        clean_motpars = signal.filtfilt(i,u,motpars_detrend,axis=0) 
-        dmotpars = np.vstack([np.zeros([n,6]),np.abs(clean_motpars[n:,:] - clean_motpars[:-n,:])])
-        dmotpars[:,3:6] = dmotpars[:,3:6]*50
-        score = np.sum(dmotpars,1)
-        # pcSigCh
-        meanImg = np.mean(niiImg[0],axis=1)[:,np.newaxis]
-        close0 = np.where(meanImg < 1e5*np.finfo(np.float).eps)[0]
-        if close0.shape[0] > 0:
-            meanImg[close0,0] = np.max(np.abs(niiImg[0][close0,:]),axis=1)
-            niiImg[0][close0,:] = niiImg[0][close0,:] + meanImg[close0,:]
-        niiImg2 = 100 * (niiImg[0] - meanImg) / meanImg
-        niiImg2[np.where(np.isnan(niiImg2))] = 0
-        dt = np.diff(niiImg[0], n=1, axis=1)
-        dt = np.concatenate((np.zeros((dt.shape[0],1),dtype=np.float32), dt), axis=1)
-        scoreDVARS = np.sqrt(np.mean(dt**2,0)) 
+        censored = np.where(cleanFD>thr)
+    elif flavor[0] == 'DVARS':
+        data = get_confounds()
+        score = np.array(data['dvars']).astype(float)
+        score[np.isnan(score)] = 0
+        censored = np.where(score>thr)
+    elif flavor[0] == 'FD-DVARS': 
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
+        scoreDVARS = np.array(data['dvars']).astype(float)
+        scoreDVARS[np.isnan(scoreDVARS)] = 0
         thr2 = flavor[2]
         censDVARS = scoreDVARS > thr2
         censored = np.where(np.logical_or(np.ravel(score)>thr,censDVARS))
-        np.savetxt(op.join(outpath(), 'FDmultiband.txt'), score, delimiter='\n', fmt='%f')
+        np.savetxt(op.join(outpath(), 'FD.txt'), score, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
-    elif flavor[0] == 'FD-DVARS':
-        motionFile = op.join(buildpath(), config.movementRegressorsFile)
-        dmotpars = np.abs(np.genfromtxt(motionFile)[:,6:]) #derivatives
-        disp=dmotpars.copy()
-        disp[:,3:]=np.pi*config.headradius*2*(disp[:,3:]/360)
-        score=np.sum(disp,1)
-        # pcSigCh
-        meanImg = np.mean(niiImg[0],axis=1)[:,np.newaxis]
-        close0 = np.where(meanImg < 1e5*np.finfo(np.float).eps)[0]
-        if close0.shape[0] > 0:
-            meanImg[close0,0] = np.max(np.abs(niiImg[0][close0,:]),axis=1)
-            niiImg[0][close0,:] = niiImg[0][close0,:] + meanImg[close0,:]
-        niiImg2 = 100 * (niiImg[0] - meanImg) / meanImg
-        niiImg2[np.where(np.isnan(niiImg2))] = 0
-        dt = np.diff(niiImg2, n=1, axis=1)
-        dt = np.concatenate((np.zeros((dt.shape[0],1),dtype=np.float32), dt), axis=1)
-        scoreDVARS = np.sqrt(np.mean(dt**2,0)) 
-        # as in Siegel et al. 2016
+    elif flavor[0] == 'FD+DVARS': # as in Siegel et al. 2016
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
+        scoreDVARS = np.array(data['dvars']).astype(float)
+        scoreDVARS[np.isnan(scoreDVARS)] = 0
+        thr2 = flavor[2]
+        censDVARS = scoreDVARS > (100+thr2)/100* np.median(scoreDVARS)
+        censored = np.where(np.logical_or(np.ravel(score)>thr,censDVARS))
+        np.savetxt(op.join(outpath(), 'FD.txt'), score, delimiter='\n', fmt='%f')
+        np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
+    elif flavor[0] == 'FDclean-DVARS': 
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
+        scoreDVARS = np.array(data['dvars']).astype(float)
+        scoreDVARS[np.isnan(scoreDVARS)] = 0
         cleanFD = clean(score[:,np.newaxis], detrend=False, standardize=False, t_r=TR, low_pass=0.3)
         thr2 = flavor[2]
         censDVARS = scoreDVARS > thr2
@@ -1699,16 +1332,56 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
         np.savetxt(op.join(outpath(), 'FD.txt'), score, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'cleanFD.txt'), cleanFD, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
-    elif flavor[0] == 'RMS':
-        RelRMSFile = op.join(buildpath(), config.movementRelativeRMSFile)
-        score = np.loadtxt(RelRMSFile)
+    elif flavor[0] == 'FDclean+DVARS': # as in Siegel et al. 2016
+        data = get_confounds()
+        score = np.array(data['framewise_displacement']).astype(float)
+        score[np.isnan(score)] = 0
+        scoreDVARS = np.array(data['dvars']).astype(float)
+        scoreDVARS[np.isnan(scoreDVARS)] = 0
+        cleanFD = clean(score[:,np.newaxis], detrend=False, standardize=False, t_r=TR, low_pass=0.3)
+        thr2 = flavor[2]
+        censDVARS = scoreDVARS > (100+thr2)/100* np.median(scoreDVARS)
+        censored = np.where(np.logical_or(np.ravel(cleanFD)>thr,censDVARS))
+        np.savetxt(op.join(outpath(), 'FD.txt'), score, delimiter='\n', fmt='%f')
+        np.savetxt(op.join(outpath(), 'cleanFD.txt'), cleanFD, delimiter='\n', fmt='%f')
+        np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
+    elif flavor[0] == 'RMS': # not working yet, needs output from mcflirt (something to do with center of rotations)
+        maskAll, maskWM_, maskCSF_, maskGM_ = masks
+        data = get_confounds()
+        regs = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
+        rmsdiff = np.zeros((nTRs, 1))
+        idx_maskall = np.unravel_index(np.where(maskAll), [nRows,nCols,nSlices], order='F')
+        minz, maxz = np.min(idx_maskall[2]), np.max(idx_maskall[2])
+        miny, maxy = np.min(idx_maskall[1]), np.max(idx_maskall[1])
+        minx, maxx = np.min(idx_maskall[0]), np.max(idx_maskall[0])
+        xdim = header.structarr['pixdim'][1]
+        ydim = header.structarr['pixdim'][2]
+        zdim = header.structarr['pixdim'][3]
+        for i in range(1,nTRs):
+            sumdistsq = 0.0
+            nvox = 0.0
+            cvec = np.zeros((4,1))
+            cvec[3] = 1
+            aff1 = get_affine(regs[i,3:6], regs[i,:3])
+            aff2 = get_affine(regs[i-1,3:6], regs[i-1,:3])
+            for z in range(minz,maxz+1):    
+                for y in range(miny,maxy+1):    
+                    for x in range(minx,maxx+1):    
+                        idx = np.ravel_multi_index([x,y,z],[nRows,nCols,nSlices], order='F')
+                        if maskAll[idx] > 0.5:
+                            cvec[0], cvec[1], cvec[2] = x*xdim, y*ydim, x*zdim
+                            dist = linalg.norm(np.dot((aff1-aff2),cvec),2)
+                            sumdistsq += dist*dist
+                            nvox += 1
+            rmsdiff[i] = np.sqrt(sumdistsq/nvox)
+        score = rmsdiff
+        score[np.isnan(score)] = 0
         censored = np.where(score>thr)
-        np.savetxt(op.join(outpath(), '{}_{}.txt'.format(flavor[0],config.pipelineName)), score, delimiter='\n', fmt='%d')
+        np.savetxt(op.join(outpath(), '{}.txt'.format(flavor[0])), score, delimiter='\n', fmt='%d')
     else:
         print('Wrong scrubbing flavor. Nothing was done')
         return niiImg[0],niiImg[1]
-    
-    pattern = re.compile("FD.*DVARS")
+    pattern = re.compile("FD.DVARS")
     if len(flavor)>3 and pattern.match(flavor[0]):
         pad = flavor[3]
         a_minus = [i-k for i in censored[0] for k in range(1, pad+1)]
@@ -1723,20 +1396,21 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
         censored = np.unique(censored[np.where(np.logical_and(censored>=0, censored<len(score)))])
     censored = np.ravel(censored)
     toAppend = np.array([])
+    n_cont = config.n_contiguous if hasattr(config,'n_contiguous')  else 5
     for i in range(len(censored)):
-        if censored[i] > 0 and censored[i] < 5:
+        if censored[i] > 0 and censored[i] < n_cont:
             toAppend = np.union1d(toAppend,np.arange(0,censored[i]))
-        elif censored[i] > nTRs - 5:
+        elif censored[i] > nTRs - n_cont:
             toAppend = np.union1d(toAppend,np.arange(censored[i]+1,nTRs))
         elif i<len(censored) - 1:
             gap = censored[i+1] - censored[i] 
-            if gap > 1 and gap <= 5:
+            if gap > 1 and gap <= n_cont:
                 toAppend = np.union1d(toAppend,np.arange(censored[i]+1,censored[i+1]))
     censored = np.union1d(censored,toAppend)
     censored.sort()
     censored = censored.astype(int)
     
-    np.savetxt(op.join(outpath(), 'Censored_TimePoints_{}.txt'.format(config.pipelineName)), censored, delimiter='\n', fmt='%d')
+    np.savetxt(op.join(outpath(), 'Censored_TimePoints.txt'), censored, delimiter='\n', fmt='%d')
     if len(censored)>0 and len(censored)<nTRs:
         config.doScrubbing = True
     if len(censored) == nTRs:
@@ -1747,29 +1421,34 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
 
 def TissueRegression(niiImg, flavor, masks, imgInfo):
     maskAll, maskWM_, maskCSF_, maskGM_ = masks
-    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
-    
+    nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
+    data = get_confounds()    
     if config.isCifti:
+        volData = niiImg[1]
+    elif config.isGifti:
         volData = niiImg[1]
     else:
         volData = niiImg[0]
 
 
     if flavor[0] == 'CompCor':
-        X = extract_noise_components(volData, maskWM_, maskCSF_, num_components=flavor[1], flavor=flavor[2])
+        if flavor[2] == 'fmriprep': # use fmriprep output
+            X = extract_noise_components(num_components=flavor[1])
+        else:
+            X = extract_noise_components(volData, maskWM_, maskCSF_, num_components=flavor[1], flavor=flavor[2])
     elif flavor[0] == 'WMCSF':
-        meanWM = np.mean(np.float32(volData[maskWM_,:]),axis=0)
+        meanWM = np.array(data.loc[:,'white_matter'])
         meanWM = meanWM - np.mean(meanWM)
         meanWM = meanWM/max(meanWM)
-        meanCSF = np.mean(np.float32(volData[maskCSF_,:]),axis=0)
+        meanCSF = np.array(data.loc[:,'csf'])
         meanCSF = meanCSF - np.mean(meanCSF)
         meanCSF = meanCSF/max(meanCSF)
         X  = np.concatenate((meanWM[:,np.newaxis], meanCSF[:,np.newaxis]), axis=1)
     elif flavor[0] == 'WMCSF+dt':
-        meanWM = np.mean(np.float32(volData[maskWM_,:]),axis=0)
+        meanWM = np.array(data.loc[:,'white_matter'])
         meanWM = meanWM - np.mean(meanWM)
         meanWM = meanWM/max(meanWM)
-        meanCSF = np.mean(np.float32(volData[maskCSF_,:]),axis=0)
+        meanCSF = np.array(data.loc[:,'csf'])
         meanCSF = meanCSF - np.mean(meanCSF)
         meanCSF = meanCSF/max(meanCSF)
         dtWM=np.zeros(meanWM.shape,dtype=np.float32)
@@ -1777,12 +1456,12 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         dtCSF=np.zeros(meanCSF.shape,dtype=np.float32)
         dtCSF[1:] = np.diff(meanCSF, n=1)
         X  = np.concatenate((meanWM[:,np.newaxis], meanCSF[:,np.newaxis], 
-                             dtWM[:,np.newaxis], dtCSF[:,np.newaxis]), axis=1)
+                             dtWM[:,np.newaxis], dtCSF[:,np.newaxis]),axis=1)    
     elif flavor[0] == 'WMCSF+dt+sq':
-        meanWM = np.mean(np.float32(volData[maskWM_,:]),axis=0)
+        meanWM = np.array(data.loc[:,'white_matter'])
         meanWM = meanWM - np.mean(meanWM)
         meanWM = meanWM/max(meanWM)
-        meanCSF = np.mean(np.float32(volData[maskCSF_,:]),axis=0)
+        meanCSF = np.array(data.loc[:,'csf'])
         meanCSF = meanCSF - np.mean(meanCSF)
         meanCSF = meanCSF/max(meanCSF)
         dtWM=np.zeros(meanWM.shape,dtype=np.float32)
@@ -1803,20 +1482,24 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         meanGM = meanGM/max(meanGM)
         X = meanGM[:,np.newaxis]
     elif flavor[0] == 'WM':
-        meanWM = np.mean(np.float32(volData[maskWM_,:]),axis=0)
+        meanWM = np.array(data.loc[:,'white_matter'])
         meanWM = meanWM - np.mean(meanWM)
         meanWM = meanWM/max(meanWM)
-        X = meanWM[:,np.newaxis]   
+        X = meanWM[:,np.newaxis]
     else:
         print('Warning! Wrong tissue regression flavor. Nothing was done')
     
     if flavor[-1] == 'GM':
         if config.isCifti:
             niiImgGM = niiImg[0]
+        elif config.isGifti:
+            niiImgGM = niiImg[0]
         else:
             niiImgGM = volData[maskGM_,:]
         niiImgGM = regress(niiImgGM, nTRs, TR, X, config.preWhitening)
         if config.isCifti:
+            niiImg[0] = niiImgGM
+        elif config.isGifti:
             niiImg[0] = niiImgGM
         else:
             volData[maskGM_,:] = niiImgGM
@@ -1826,35 +1509,42 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
     elif flavor[-1] == 'wholebrain':
         return X
     else:
-        print('Warning! Wrong tissue regression flavor. Nothing was done')
+        print("Warning! Last option of TissueRegression should be either 'GM' or 'wholebrain'. Nothing was done")
         
 def Detrending(niiImg, flavor, masks, imgInfo):
     maskAll, maskWM_, maskCSF_, maskGM_ = masks
-    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+    nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
+    nPoly = flavor[1]
     
     if config.isCifti:
+        volData = niiImg[1]
+    elif config.isGifti:
         volData = niiImg[1]
     else:
         volData = niiImg[0]
 
     if flavor[2] == 'WMCSF':
-        niiImgWMCSF = volData[np.logical_or(maskWM_,maskCSF_),:]
+        data = get_confounds()  
+        meanWM = np.array(data.loc[:,'white_matter'])
+        meanCSF = np.array(data.loc[:,'csf'])
         if flavor[0] == 'legendre':
             y = legendre_poly(flavor[1],nTRs)                
         elif flavor[0] == 'poly':       
             x = np.arange(nTRs)            
-            y = np.ones((flavor[1],len(x)))
-            for i in range(flavor[1]):
+            y = np.ones((nPoly,len(x)))
+            for i in range(nPoly):
                 y[i,:] = (x - (np.max(x)/2)) **(i+1)
                 y[i,:] = y[i,:] - np.mean(y[i,:])
                 y[i,:] = y[i,:]/np.max(y[i,:]) 
         else:
             print('Warning! Wrong detrend flavor. Nothing was done')
-            return niiImg[0],niiImg[1]     
-        niiImgWMCSF = regress(niiImgWMCSF, nTRs, TR, y[1:flavor[1],:].T, config.preWhitening)
-        volData[np.logical_or(maskWM_,maskCSF_),:] = niiImgWMCSF
+        data['wm'] = regress(meanWM, nTRs, TR, y[1:nPoly,:].T, config.preWhitening)
+        data['csf'] = regress(meanCSF, nTRs, TR, y[1:nPoly,:].T, config.preWhitening)
+        config.confounds = data
     elif flavor[2] == 'GM':
         if config.isCifti:
+            niiImgGM = niiImg[0]
+        elif config.isGifti:
             niiImgGM = niiImg[0]
         else:
             niiImgGM = volData[maskGM_,:]
@@ -1862,16 +1552,15 @@ def Detrending(niiImg, flavor, masks, imgInfo):
             y = legendre_poly(flavor[1], nTRs)
         elif flavor[0] == 'poly':       
             x = np.arange(nTRs)
-            y = np.ones((flavor[1],len(x)))
-            for i in range(flavor[1]):
+            y = np.ones((nPoly,len(x)))
+            for i in range(nPoly):
                 y[i,:] = (x - (np.max(x)/2)) **(i+1)
                 y[i,:] = y[i,:] - np.mean(y[i,:])
                 y[i,:] = y[i,:]/np.max(y[i,:])
-        else:
-            print('Warning! Wrong detrend flavor. Nothing was done')
-            return niiImg[0],niiImg[1]     
-        niiImgGM = regress(niiImgGM, nTRs, TR, y[1:flavor[1],:].T, config.preWhitening)
+        niiImgGM = regress(niiImgGM, nTRs, TR, y[1:nPoly,:].T, config.preWhitening)
         if config.isCifti:
+            niiImg[0] = niiImgGM
+        elif config.isGifti:
             niiImg[0] = niiImgGM
         else:
             volData[maskGM_,:] = niiImgGM
@@ -1880,8 +1569,8 @@ def Detrending(niiImg, flavor, masks, imgInfo):
             y = legendre_poly(flavor[1], nTRs)
         elif flavor[0] == 'poly':       
             x = np.arange(nTRs)
-            y = np.ones((flavor[1],len(x)))
-            for i in range(flavor[1]):
+            y = np.ones((nPoly,len(x)))
+            for i in range(nPoly):
                 y[i,:] = (x - (np.max(x)/2)) **(i+1)
                 y[i,:] = y[i,:] - np.mean(y[i,:])
                 y[i,:] = y[i,:]/np.max(y[i,:])        
@@ -1893,17 +1582,17 @@ def Detrending(niiImg, flavor, masks, imgInfo):
 
     if config.isCifti:
         niiImg[1] = volData
+    elif config.isGifti:
+        niiImg[1] = volData
     else:
         niiImg[0] = volData            
     return niiImg[0],niiImg[1]     
    
-   
 def TemporalFiltering(niiImg, flavor, masks, imgInfo):
-    maskAll, maskWM_, maskCSF_, maskGM_ = masks
-    nRows, nCols, nSlices, nTRs, affine, TR, header = imgInfo
+    nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
 
     if config.doScrubbing and flavor[0] in ['Butter','Gaussian']:
-        censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints_{}.txt'.format(config.pipelineName)), dtype=np.dtype(np.int32))
+        censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
         censored = np.atleast_1d(censored)
         if len(censored)<nTRs and len(censored) > 0:
             data = interpolate(niiImg[0],censored,TR,nTRs,method=config.interpolation)     
@@ -1944,52 +1633,56 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
             x = clean(data2.T, detrend=False, standardize=False, 
                t_r=TR, high_pass=flavor[1], low_pass=flavor[2])
             niiImg[1] = x[NR:-NR,:].T
+            
     elif flavor[0] == 'Gaussian':
         w = signal.gaussian(11,std=flavor[1])
         niiImg[0] = signal.lfilter(w,1,data)
         if niiImg[1] is not None:
             niiImg[1] = signal.lfilter(w,1,data2)
+    elif flavor[0] == 'CompCor':
+        X = get_confounds()
+        X = X.filter(regex=("t_comp_cor_*"))
+        return np.array(X)
     elif flavor[0] == 'DCT':
-        K = dctmtx(nTRs)
         if len(flavor)>2:
+            K = dctmtx(nTRs)
             HPC = 1/flavor[1]
             LPC = 1/flavor[2]
             nHP = int(np.fix(2*(nTRs*TR)/HPC + 1))
             nLP = int(np.fix(2*(nTRs*TR)/LPC + 1))
-            K = K[:,np.concatenate((range(2,nHP),range(int(nLP)-1,nTRs)))]
+            K = K[:,np.concatenate((range(1,nHP),range(int(nLP)-1,nTRs)))]
+            return K
         else:
-            HPC = 1/flavor[1]
-            nHP = int(np.fix(2*(nTRs*TR)/HPC + 1))
-            K = K[:,range(2,nHP)]
-        return K
+            X = get_confounds()
+            X = X.filter(regex=("cosine*"))
+            return np.array(X)
     else:
-        print('Warning! Wrong temporal filtering flavor. Nothing was done')
+        print('Warning! Wrong temporal filtering flavor. Nothing was done'    )
         return niiImg[0],niiImg[1]
 
     config.filtering = flavor
     return niiImg[0],niiImg[1]    
 
 def GlobalSignalRegression(niiImg, flavor, masks, imgInfo):
-    meanAll = np.mean(niiImg[0],axis=0)
-    meanAll = meanAll - np.mean(meanAll)
-    meanAll = meanAll/max(meanAll)
+    data = get_confounds()
+    GS = np.array(data.loc[:,'global_signal'])
     if flavor[0] == 'GS':
-        return meanAll[:,np.newaxis]
+        return GS[:,np.newaxis]
     elif flavor[0] == 'GS+dt':
-        dtGS=np.zeros(meanAll.shape,dtype=np.float32)
-        dtGS[1:] = np.diff(meanAll, n=1)
-        X  = np.concatenate((meanAll[:,np.newaxis], dtGS[:,np.newaxis]), axis=1)
+        dtGS = np.zeros(GS.shape,dtype=np.float32)
+        dtGS[1:] = np.diff(GS, n=1)
+        X  = np.concatenate((GS[:,np.newaxis], dtGS[:,np.newaxis]), axis=1)
         return X
     elif flavor[0] == 'GS+dt+sq':
-        dtGS = np.zeros(meanAll.shape,dtype=np.float32)
-        dtGS[1:] = np.diff(meanAll, n=1)
-        sqGS = meanAll ** 2
+        dtGS = np.zeros(GS.shape,dtype=np.float32)
+        dtGS[1:] = np.diff(GS, n=1)
+        sqGS = GS ** 2
         sqdtGS = dtGS ** 2
-        X  = np.concatenate((meanAll[:,np.newaxis], dtGS[:,np.newaxis], sqGS[:,np.newaxis], sqdtGS[:,np.newaxis]), axis=1)
+        X  = np.concatenate((GS[:,np.newaxis], dtGS[:,np.newaxis], sqGS[:,np.newaxis], sqdtGS[:,np.newaxis]), axis=1)
         return X
     else:
         print('Warning! Wrong normalization flavor. Using defalut regressor: GS')
-        return meanAll[:,np.newaxis]
+        return GS[:,np.newaxis]
 
 def VoxelNormalization(niiImg, flavor, masks, imgInfo):
     if flavor[0] == 'zscore':
@@ -2040,14 +1733,14 @@ Hooks={
 #  
 #  @return [np.array] frame displacement score
 #  
-def computeFD():
+def computeFD(lowpass=None):
     # Frame displacement
-    motionFile = op.join(buildpath(), config.movementRegressorsFile)
-    dmotpars = np.abs(np.genfromtxt(motionFile)[:,6:]) #derivatives
-    disp=dmotpars.copy()
-    disp[:,3:]=np.pi*config.headradius*2*(disp[:,3:]/360)
-    score=np.sum(disp,1)
+    data = get_confounds()
+    score = np.array(data['framewise_displacement']).astype(float)
+    if lowpass:
+        score = clean(score[:,np.newaxis], detrend=False, standardize=False, t_r=TR, low_pass=lowpass)
     return score
+
 ## 
 #  @brief Generate gray plot
 #  
@@ -2056,40 +1749,31 @@ def computeFD():
 #  
 def stepPlot(X,operationName, displayPlot=False,overwrite=False):
     savePlotFile = op.join(outpath(),operationName+'_grayplot.png')
-    sys.stdout.flush()
     if not op.isfile(savePlotFile) or overwrite:
         
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             # load masks
             maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
 
         fig = plt.figure(figsize=(15,8))
         ax1 = plt.subplot(111)
 
-        # denoised volume
-        if not config.isCifti:
+        if config.isCifti or config.isGifti:
+            Xgm = stats.zscore(X, axis=1, ddof=1)
+        else:
             X = stats.zscore(X, axis=1, ddof=1)
             Xgm  = X[maskGM_,:]
             Xwm  = X[maskWM_,:]
             Xcsf = X[maskCSF_,:]
-        else:
-            # cifti
-            tsvFile = config.fmriFile_dn.replace('.dtseries.nii','.tsv')
-            if not op.isfile(tsvFile):
-                cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile_dn,tsvFile)
-                call(cmd,shell=True)
-            Xgm = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
-            nTRs = Xgm.shape[1]
-            Xgm = stats.zscore(Xgm, axis=1, ddof=1)
 
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             im = plt.imshow(np.vstack((Xgm,Xwm,Xcsf)), aspect='auto', interpolation='none', cmap=plt.cm.gray)
         else:
             im = plt.imshow(Xgm, aspect='auto', interpolation='none', cmap=plt.cm.gray)
         im.set_clim(vmin=-3, vmax=3)
         plt.title(operationName)
         plt.ylabel('Voxels')
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             plt.axhline(y=np.sum(maskGM_), color='r')
             plt.axhline(y=np.sum(maskGM_)+np.sum(maskWM_), color='b')
 
@@ -2098,7 +1782,6 @@ def stepPlot(X,operationName, displayPlot=False,overwrite=False):
         fig.colorbar(im)
         # save figure
         fig.savefig(savePlotFile, bbox_inches='tight',dpi=75)
-
 
 ## 
 #  @brief Generate gray plot
@@ -2112,26 +1795,34 @@ def makeGrayPlot(displayPlot=False,overwrite=False):
         # FD
         t = time()
         score = computeFD()
-        
-        if not config.isCifti:
-            # load masks
-            maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
-
-            # original volume
-            X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
-            X = stats.zscore(X, axis=1, ddof=1)
-            Xgm  = X[maskGM_,:]
-            Xwm  = X[maskWM_,:]
-            Xcsf = X[maskCSF_,:]
-        else:
-            # cifti
-            tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv')
-            if not op.isfile(tsvFile):									  
+        config.confounds = None 
+        # original volume
+        if config.isCifti:
+            tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv').replace(buildpath(),outpath())
+            if not op.isfile(tsvFile):
                 cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile,tsvFile)
                 call(cmd,shell=True)
             Xgm = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
             nTRs = Xgm.shape[1]
             Xgm = stats.zscore(Xgm, axis=1, ddof=1)
+        elif config.isGifti:
+            giiData = nib.load(config.fmriFile)
+            Xgm = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+            nTRs = Xgm.shape[1]
+            constant_rows = np.where(np.all([Xgm[i,:]==Xgm[i,0] for i in range(Xgm.shape[0])],axis=1))[0]
+            nan_rows = np.where(np.isnan(Xgm).all(axis=1))
+            constant_rows = np.union1d(constant_rows,nan_rows)
+            maskAll = np.ones(Xgm.shape[0]).astype(bool)
+            maskAll[constant_rows] = False
+            Xgm = stats.zscore(Xgm[maskAll,:], axis=1, ddof=1)
+        else:
+            # load masks
+            maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
+            X = stats.zscore(X, axis=1, ddof=1)
+            Xgm  = X[maskGM_,:]
+            Xwm  = X[maskWM_,:]
+            Xcsf = X[maskCSF_,:]
 
         fig = plt.figure(figsize=(15,20))
         ax1 = plt.subplot(311)
@@ -2140,43 +1831,52 @@ def makeGrayPlot(displayPlot=False,overwrite=False):
         plt.ylabel('FD (mm)')
 
         ax2 = plt.subplot(312, sharex=ax1)
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             im = plt.imshow(np.vstack((Xgm,Xwm,Xcsf)), aspect='auto', interpolation='none', cmap=plt.cm.gray)
         else:
             im = plt.imshow(Xgm, aspect='auto', interpolation='none', cmap=plt.cm.gray)
         im.set_clim(vmin=-3, vmax=3)
         plt.title('Before denoising')
         plt.ylabel('Voxels')
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             plt.axhline(y=np.sum(maskGM_), color='r')
             plt.axhline(y=np.sum(maskGM_)+np.sum(maskWM_), color='b')
 
         # denoised volume
-        if not config.isCifti:
-            X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
-            X = stats.zscore(X, axis=1, ddof=1)
-            Xgm  = X[maskGM_,:]
-            Xwm  = X[maskWM_,:]
-            Xcsf = X[maskCSF_,:]
-        else:
-            # cifti
-            tsvFile = config.fmriFile_dn.replace('.dtseries.nii','.tsv')
+        if config.isCifti:
+            tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv').replace(buildpath(),outpath())
             if not op.isfile(tsvFile):
                 cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile_dn,tsvFile)
                 call(cmd,shell=True)
             Xgm = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
             nTRs = Xgm.shape[1]
             Xgm = stats.zscore(Xgm, axis=1, ddof=1)
+        elif config.isGifti:
+            giiData = nib.load(config.fmriFile_dn)
+            Xgm = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+            nTRs = Xgm.shape[1]
+            constant_rows = np.where(np.all([Xgm[i,:]==Xgm[i,0] for i in range(Xgm.shape[0])],axis=1))[0]
+            nan_rows = np.where(np.isnan(Xgm).all(axis=1))
+            constant_rows = np.union1d(constant_rows,nan_rows)
+            maskAll = np.ones(Xgm.shape[0]).astype(bool)
+            maskAll[constant_rows] = False
+            Xgm = stats.zscore(Xgm[maskAll,:], axis=1, ddof=1)
+        else:
+            X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
+            X = stats.zscore(X, axis=1, ddof=1)
+            Xgm  = X[maskGM_,:]
+            Xwm  = X[maskWM_,:]
+            Xcsf = X[maskCSF_,:]
 
         ax3 = plt.subplot(313, sharex=ax1)
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             im = plt.imshow(np.vstack((Xgm,Xwm,Xcsf)), aspect='auto', interpolation='none', cmap=plt.cm.gray)
         else:
             im = plt.imshow(Xgm, aspect='auto', interpolation='none', cmap=plt.cm.gray)
         im.set_clim(vmin=-3, vmax=3)
         plt.title('After denoising')
         plt.ylabel('Voxels')
-        if not config.isCifti:
+        if not config.isCifti and not config.isGifti:
             plt.axhline(y=np.sum(maskGM_), color='r')
             plt.axhline(y=np.sum(maskGM_)+np.sum(maskWM_), color='b')
 
@@ -2203,30 +1903,32 @@ def makeGrayPlot(displayPlot=False,overwrite=False):
 #  @brief Apply parcellation (output saved to file)
 #  
 def parcellate(overwrite=False):
-    print("entering parcellate (overwrite={})".format(overwrite))
     # After preprocessing, functional connectivity is computed
     tsDir = op.join(outpath(),config.parcellationName)
     if not op.isdir(tsDir): mkdir(tsDir)
-    prefix = config.session+'_' if  hasattr(config,'session')  else ''																  
+    prefix = config.session+'_' if  hasattr(config,'session')  else ''
     tsDir = op.join(tsDir,prefix+config.fmriRun+config.ext)
     if not op.isdir(tsDir): mkdir(tsDir)
 
     #####################
     # read parcels
     #####################
-    if not config.isCifti:
+    if config.isCifti:
+        if not op.isfile(config.parcellationFile.replace('.dlabel.nii','.tsv')):    
+            cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.parcellationFile,
+                                                                   config.parcellationFile.replace('.dlabel.nii','.tsv'))
+            call(cmd, shell=True)
+        allparcels = np.loadtxt(config.parcellationFile.replace('.dlabel.nii','.tsv'))
+    elif config.isGifti:
+        giiParcels = nib.load(config.parcellationFile) #TODO: check
+        allparcels = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+    else:
         maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
         if not config.maskParcelswithAll:     
             maskAll  = np.ones(np.shape(maskAll), dtype=bool)
         allparcels, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.parcellationFile, maskAll)
         if config.maskParcelswithGM:
             allparcels[np.logical_not(maskGM_)] = 0;
-    else:
-        if not op.isfile(config.parcellationFile.replace('.dlabel.nii','.tsv')):    
-            cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.parcellationFile,
-                                                                   config.parcellationFile.replace('.dlabel.nii','.tsv'))
-            call(cmd, shell=True)
-        allparcels = np.loadtxt(config.parcellationFile.replace('.dlabel.nii','.tsv'))
     
     ####################
     # original data
@@ -2234,14 +1936,24 @@ def parcellate(overwrite=False):
     alltsFile = op.join(tsDir,'allParcels.txt')
     if not op.isfile(alltsFile) or overwrite:
         # read original volume
-        if not config.isCifti:
-            data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
-        else:
-            tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv')
-            if not op.isfile(tsvFile):									  
+        if config.isCifti:
+            tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv').replace(buildpath(),outpath())
+            if not op.isfile(tsvFile):
                 cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile,tsvFile)
                 call(cmd, shell=True)
             data = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
+        elif config.isGifti:
+            giiData = nib.load(config.fmriFile)
+            data = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+            constant_rows = np.where(np.all([data[i,:]==data[i,0] for i in range(data.shape[0])],axis=1))[0]
+            nan_rows = np.where(np.isnan(data).all(axis=1))
+            constant_rows = np.union1d(constant_rows,nan_rows)
+            maskAll = np.ones(data.shape[0]).astype(bool)
+            maskAll[constant_rows] = False
+            data = data[maskAll,:]
+            allparcels = allparcels[maskAll,:] #TODO: check
+        else:
+            data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
         
         for iParcel in np.arange(config.nParcels):
             tsFile = op.join(tsDir,'parcel{:03d}.txt'.format(iParcel+1))
@@ -2249,7 +1961,6 @@ def parcellate(overwrite=False):
                 np.savetxt(tsFile,np.nanmean(data[np.where(allparcels==iParcel+1)[0],:],axis=0),fmt='%.16f',delimiter='\n')
 
         # concatenate all ts
-        print('Concatenating data')
         cmd = 'paste '+op.join(tsDir,'parcel???.txt')+' > '+alltsFile
         call(cmd, shell=True)
 
@@ -2260,14 +1971,23 @@ def parcellate(overwrite=False):
     alltsFile    = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
     if (not op.isfile(alltsFile)) or overwrite:
         # read denoised volume
-        if not config.isCifti:
-            data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
-        else:
+        if config.isCifti:
             if not op.isfile(config.fmriFile_dn.replace('.dtseries.nii','.tsv')):
                 cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile_dn,
                                                                            config.fmriFile_dn.replace('.dtseries.nii','.tsv'))
                 call(cmd, shell=True)
             data = pd.read_csv(config.fmriFile_dn.replace('.dtseries.nii','.tsv'),sep='\t',header=None,dtype=np.float32).values
+        elif config.isGifti:
+            giiData = nib.load(config.fmriFile_dn)
+            data = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+            constant_rows = np.where(np.all([data[i,:]==data[i,0] for i in range(data.shape[0])],axis=1))[0]
+            nan_rows = np.where(np.isnan(data).all(axis=1))
+            constant_rows = np.union1d(constant_rows,nan_rows)
+            maskAll = np.ones(data.shape[0]).astype(bool)
+            maskAll[constant_rows] = False
+            data = data[maskAll,:]
+        else:
+            data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
                    
         for iParcel in np.arange(config.nParcels):
             tsFile = op.join(tsDir,'parcel{:03d}_{}.txt'.format(iParcel+1,rstring))
@@ -2280,12 +2000,11 @@ def parcellate(overwrite=False):
                     np.savetxt(tsFileAll,np.transpose(data[np.where(allparcels==iParcel+1)[0],:]),fmt='%.16f',delimiter=',',newline='\n')
         
         # concatenate all ts
-        print('Concatenating data')
         cmd = 'paste '+op.join(tsDir,'parcel???_{}.txt'.format(rstring))+' > '+alltsFile
         call(cmd, shell=True)
 
-
 ## 
+#  ## 
 #  @brief Get FC matrices for list of subjects
 #  
 #  @param [array-like] subjectList list of subject IDs
@@ -2296,14 +2015,13 @@ def parcellate(overwrite=False):
 #  @param [str] outputDir path to preprocessed data folder (optional, default is outpath())
 #  @param [bool] isCifti True if preprocessed data is in cifti format
 #  @param [str] fcMatFile full path to output file (default ./fcMats.mat)
-#  @param [str] kind type of FC, one of {"correlation", "partial correlation", "tangent", "covariance", "precision"}
+#  @param [str] kind type of FC, one of {"correlation" (default), "partial correlation", "tangent", "covariance", "precision"}
 #  @param [bool] overwrite True if existing files should be overwritten
 #  @param [str] FCDir path to folder containing precomputed timeseries x parcels per subject - if None they are retrieved from each subject's folder
 #  @param [bool] mergeSessions True if time series from different sessions should be merged before computing FC, otherwise FC from each session are averaged
 #  @param [bool] mergeRuns True if time series from different runs should be merged before computing FC, otherwise FC from each run are averaged (if mergeSessions is True mergeRuns is ignored and everything is concatenated)
 #  @param [CovarianceEstimator] cov_estimator is None, default sklearn.covariance.LedoitWolf estimator is used
-#  
-def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,outputDir=None,isCifti=False,fcMatFile='fcMats.mat',
+def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,outputDir=None,isCifti=False,isGifti=False,fcMatFile='fcMats.mat',
              kind='correlation',overwrite=True,FCDir=None,mergeSessions=True,mergeRuns=False,cov_estimator=None):
     if (not op.isfile(fcMatFile)) or overwrite:
         if cov_estimator is None:
@@ -2315,6 +2033,8 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
         discard_diagonal=True)
         if isCifti:
             ext = '.dtseries.nii'
+        if isGifti:
+            ext = '.func.gii'
         else:
             ext = '.nii.gz'
 
@@ -2331,15 +2051,15 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                         if FCDir is None: # retrieve data from each subject's folder
                             # retrieve the name of the denoised fMRI file
                             if hasattr(config,'fmriFileTemplate'):
-                                inputFile = op.join(buildpath(), config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#fMRIsession#', config.session))
+                                inputFile = op.join(config.DATADIR, config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#fMRIsession#', config.session).replace('#subjectID#', config.subject))
                             else:
                                 prefix = config.session+'_'
                                 if isCifti:
-                                    inputFile = op.join(buildpath(), prefix+config.fmriRun+'_Atlas'+config.suffix+ext)
+                                    inputFile = op.join(buildpath(), prefix+config.fmriRun+'_Atlas'+config.smoothing+ext)
                                 else:
                                     inputFile = op.join(buildpath(), prefix+config.fmriRun+ext)
                             outputPath = outpath() if outputDir is None else outputDir
-                            preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti)
+                            preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti, isGifti)
                             if preproFile:
                                 # retrieve time courses of parcels
                                 prefix = config.session+'_'
@@ -2370,14 +2090,14 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                     if FCDir is None: # retrieve data from each subject's folder
                         # retrieve the name of the denoised fMRI file
                         if hasattr(config,'fmriFileTemplate'):
-                            inputFile = op.join(buildpath(), config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#fMRIsession#', config.session))
+                            inputFile = op.join(config.DATADIR, config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#fMRIsession#', config.session).replace('#subjectID#', config.subject))
                         else:
                             if isCifti:
-                                inputFile = op.join(buildpath(), config.fmriRun+'_Atlas'+config.suffix+ext)
+                                inputFile = op.join(buildpath(), config.fmriRun+'_Atlas'+config.smoothing+ext)
                             else:
                                 inputFile = op.join(buildpath(), config.fmriRun+ext)
                         outputPath = outpath() if (outputDir is None) else outputDir
-                        preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti)
+                        preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti, isGifti)
                         if preproFile:
                             # retrieve time courses of parcels
                             tsDir     = op.join(outpath(),config.parcellationName,config.fmriRun+ext)
@@ -2418,6 +2138,7 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
     else:
         results = sio.loadmat(fcMatFile)
         return results
+ 
 ## 
 #  @brief Compute functional connectivity matrix (output saved to file)
 #  
@@ -2426,22 +2147,20 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
 def computeFC(overwrite=False):
     prefix = config.session+'_' if  hasattr(config,'session')  else ''
     FCDir = config.FCDir if  hasattr(config,'FCDir')  else ''
-    if FCDir and not op.isdir(FCDir): makedirs(FCDir, exist_ok=True)
+    if FCDir and not op.isdir(FCDir): makedirs(FCDir)
     tsDir = op.join(outpath(),config.parcellationName,prefix+config.fmriRun+config.ext)
-    cov_estimator = LedoitWolf(assume_centered=False, block_size=1000, store_precision=False)
-    measure = connectome.ConnectivityMeasure(cov_estimator=cov_estimator,kind = config.fcType,vectorize=False)
     ###################
     # original
     ###################
     alltsFile = op.join(tsDir,'allParcels.txt')
-    if not op.isfile(alltsFile) or overwrite:
+    if not op.isfile(alltsFile):
         parcellate(overwrite)
     fcFile     = alltsFile.replace('.txt','_Pearson.txt')
     if not op.isfile(fcFile) or overwrite:
         ts = np.loadtxt(alltsFile)
-        ts[np.where(np.isnan(ts))] = 0
         # correlation
-        corrMat = np.squeeze(measure.fit_transform([ts]))
+        corrMat = np.corrcoef(ts,rowvar=0)
+        # np.fill_diagonal(corrMat,1)
         # save as .txt
         np.savetxt(fcFile,corrMat,fmt='%.6f',delimiter=',')
     ###################
@@ -2449,26 +2168,25 @@ def computeFC(overwrite=False):
     ###################
     rstring = get_rcode(config.fmriFile_dn)
     alltsFile = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
-    if not op.isfile(alltsFile) or overwrite:
+    if not op.isfile(alltsFile):
         parcellate(overwrite)
     fcFile    = alltsFile.replace('.txt','_Pearson.txt')
     if not op.isfile(fcFile) or overwrite:
         ts = np.loadtxt(alltsFile)
-        ts[np.where(np.isnan(ts))] = 0
         # censor time points that need censoring
         if config.doScrubbing:
-            censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints_{}.txt'.format(config.pipelineName)), dtype=np.dtype(np.int32))
+            censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
             censored = np.atleast_1d(censored)
             tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
             ts = ts[tokeep,:]
         # correlation
-        corrMat = np.squeeze(measure.fit_transform([ts]))
+        corrMat = np.corrcoef(ts,rowvar=0)
+        # np.fill_diagonal(corrMat,1)
         # save as .txt
         np.savetxt(fcFile,corrMat,fmt='%.6f',delimiter=',')
         if FCDir:
             np.savetxt(op.join(FCDir,config.subject+'_'+prefix+config.fmriRun+'_ts.txt'),ts,fmt='%.6f',delimiter=',')
-	
-
+		
 ## 
 #  @brief Compute functional connectivity matrices before and after preprocessing and generate FC plot
 #  
@@ -2477,12 +2195,11 @@ def computeFC(overwrite=False):
 #  @return [tuple] functional connectivity matrix before and after denoising
 #     
 def plotFC(displayPlot=False,overwrite=False):
-    print("entering plotFC (overwrite={})".format(overwrite))
     savePlotFile=config.fmriFile_dn.replace(config.ext,'_'+config.parcellationName+'_fcMat.png')
 
     if not op.isfile(savePlotFile) or overwrite:
         computeFC(overwrite)
-    prefix = config.session+'_' if  hasattr(config,'session')  else ''																  
+    prefix = config.session+'_' if  hasattr(config,'session')  else ''
     tsDir      = op.join(outpath(),config.parcellationName,prefix+config.fmriRun+config.ext)
     fcFile     = op.join(tsDir,'allParcels_Pearson.txt')
     fcMat      = np.genfromtxt(fcFile,delimiter=",")
@@ -2562,11 +2279,7 @@ def defConVec(df,confound,session):
         if session in ['REST1','REST2','EMOTION','GAMBLING','LANGUAGE','MOTOR','RELATIONAL','SOCIAL','WM']:
             conVec = df['FDsum_'+session]
         elif session == 'REST12':
-            conVec = 1./2.*(df['FDsum_REST1'] + df['FDsum_REST2'])
-        elif session == 'TASK':
-            conVec = 1./7.*(df['FDsum_EMOTION'] + df['FDsum_GAMBLING'] + df['FDsum_LANGUAGE'] + df['FDsum_MOTOR'] + df['FDsum_RELATIONAL'] + df['FDsum_SOCIAL'] + df['FDsum_WM'])
-        elif session == 'TASK+REST':
-            conVec = 1./9.*(df['FDsum_EMOTION'] + df['FDsum_GAMBLING'] + df['FDsum_LANGUAGE'] + df['FDsum_MOTOR'] + df['FDsum_RELATIONAL'] + df['FDsum_SOCIAL'] + df['FDsum_WM'] + df['FDsum_REST1'] + df['FDsum_REST2'])
+            conVec = .5*(df['FDsum_REST1'] + df['FDsum_REST2'])
     elif confound == 'recon':
         conVec = df['fMRI_3T_ReconVrs']
     elif confound == 'PMAT24_A_CR':
@@ -2618,7 +2331,6 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
             if conMat is None:
                 conMat = np.array(np.ravel(conVec))
             else:
-                print(confound,conMat.shape,conVec.shape)
                 conMat = np.vstack((conMat,conVec))
         # if only one confound, transform to matrix
         if len(confounds)==1:
@@ -2635,7 +2347,6 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
         regr.fit(conMat[train_index,:], score[train_index])
         fittedvalues = regr.predict(conMat)
         score        = score - np.ravel(fittedvalues)
-        print(score.shape)
 
         corrAft = []
         for i in range(len(confounds)):
@@ -2663,7 +2374,6 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
 
         outFile = op.join(outDir,'{:04d}'.format(thisPerm),'{}.mat'.format(
             '_'.join(['%s' % test_sub for test_sub in df['Subject'][test_index]])))
-        print(outFile)
 
         if op.isfile(outFile) and not config.overwrite:
             continue
@@ -2677,7 +2387,6 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
         idx_filtered_neg = np.array([idx for idx in range(0,n_edges) if pears[idx][1]<filterThr and pears[idx][0]<0])
             
         if model=='Finn':
-            print(model)
             lr  = linear_model.LinearRegression()
             # select edges (positively and negatively) correlated with score with threshold filterThr
             filtered_pos = edges[np.ix_(train_index,idx_filtered_pos)]
@@ -2704,7 +2413,6 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
             sio.savemat(outFile,results)
         
         elif model=='elnet':
-            print(model)
             X_train, X_test, y_train, y_test = edges[np.ix_(train_index,idx_filtered)], edges[np.ix_(test_index,idx_filtered)], score[train_index], score[test_index]
             rbX            = RobustScaler()
             X_train        = rbX.fit_transform(X_train)
@@ -2720,7 +2428,7 @@ def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFil
             start_time     = time()
             elnet.fit(X_train,y_train)
             elapsed_time   = time() - start_time
-            print("Trained ELNET in {0:02d}h:{1:02d}min:{2:02d}s".format(int(elapsed_time//3600),int((elapsed_time%3600)//60),int(elapsed_time%60)))
+            print("Trained ELNET in {0:02d}h:{1:02d}min:{2:02d}s".format(int(elapsed_time//3600),int((elapsed_time%3600)//60),int(elapsed_time%60))   )
             # PREDICT
             X_test         = rbX.transform(X_test)
             if len(X_test.shape) == 1:
@@ -2803,7 +2511,7 @@ def runPredictionParJD(fcMatFile, dataFile, SM='PMAT24_A_CR', iPerm=[0], confoun
         jobName = 'f{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(el,config.pipelineName,config.parcellationName,SM, model,config.release,session,decon,fctype)
         # make a script
         thispythonfn  = '<< END\nimport sys\nsys.path.insert(0,"{}")\n'.format(config.sourceDir)
-        thispythonfn += 'from HCP_helpers import *\n'
+        thispythonfn += 'from fmriprepciftify_helpers import *\n'
         thispythonfn += 'logFid                  = open("{}","a+")\n'.format(op.join(jobDir,jobName+'.log'))
         thispythonfn += 'sys.stdout              = logFid\n'
         thispythonfn += 'sys.stderr              = logFid\n'
@@ -2822,7 +2530,7 @@ def runPredictionParJD(fcMatFile, dataFile, SM='PMAT24_A_CR', iPerm=[0], confoun
         thispythonfn += 'print("=========================")\n'
         thispythonfn += 'print("runPredictionJD(\'{}\',\'{}\'))"\n'.format(fcMatFile, dataFile)
         thispythonfn += 'print("=========================")\n'
-        thispythonfn += 'print("=========================")\n'
+        thispythonfn += 'print("========================="\n'
         str1 =  '['+','.join(['%s' % test_ind for test_ind in test_index])+']'
         str2 =  '['+','.join(['"%s"' % el for el in confounds])+']'
         str3 =  '['+','.join(['%s' % el for el in jPerm])+']'
@@ -2856,12 +2564,12 @@ def runPredictionParJD(fcMatFile, dataFile, SM='PMAT24_A_CR', iPerm=[0], confoun
         else:
             runPredictionJD(fcMatFile,dataFile,test_index,filterThr=filterThr,keepEdgeFile=keepEdgeFile,SM=SM, session=session, decon=decon, fctype=fctype, model=model, outDir=outDir, confounds=confounds,iPerm=jPerm)
         iCV = iCV +1
-
+    
     if len(config.scriptlist)>0:
         # launch array job
         JobID = fnSubmitJobArrayFromJobList()
         config.joblist.append(JobID.split(b'.')[0])
-    
+
 ## 
 #  @brief Run preprocessing pipeline (output saved to file)
 #  
@@ -2872,9 +2580,12 @@ def runPipeline():
     sortedOperations = config.sortedOperations
     
     timeStart = localtime()
-    print('Step 0 : Building WM, CSF and GM masks...')
-    masks = makeTissueMasks(overwrite=False)
-    maskAll, maskWM_, maskCSF_, maskGM_ = masks    
+    if not config.isGifti:
+        print('Step 0 : Building WM, CSF and GM masks...')
+        masks = makeTissueMasks(overwrite=config.overwrite)
+        maskAll, maskWM_, maskCSF_, maskGM_ = masks    
+    else:
+        masks = [None, None, None, None] # I could pass at least maskAll and set the others to None
 
     if config.isCifti:
         # volume
@@ -2888,11 +2599,31 @@ def runPipeline():
             cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile,config.fmriFile.replace('.dtseries.nii','.tsv'))
             call(cmd,shell=True)
         data = pd.read_csv(config.fmriFile.replace('.dtseries.nii','.tsv'),sep='\t',header=None,dtype=np.float32).values
+    elif config.isGifti:
+        giiData = nib.load(config.fmriFile)
+        data = np.vstack([np.array(g.data) for g in giiData.darrays]).T
+        nVertices = data.shape[0]
+        constant_rows = np.where(np.all([data[i,:]==data[i,0] for i in range(data.shape[0])],axis=1))[0]
+        nan_rows = np.where(np.isnan(data).all(axis=1))
+        constant_rows = np.union1d(constant_rows,nan_rows)
+        np.savetxt(op.join(outpath(),'constant_rows.txt'), constant_rows, delimiter='\n', fmt='%d')
+        maskAll = np.ones(data.shape[0]).astype(bool)
+        maskAll[constant_rows] = False
+        masks[0] = maskAll
+        data = data[maskAll,:]
+        volData = None # TODO: CHECK
+        nTRs = data.shape[1]
+        nRows, nCols, nSlices, affine, header = None, None, None, None, None
+        TR = float(giiData.darrays[0].metadata['TimeStep'])/1000
+        print('TR =',TR)
     else:
         volFile = config.fmriFile
         print('Loading [volume] data in memory... {}'.format(config.fmriFile))
         data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll) 
         volData = None
+
+    if masks[0] is None:
+        masks[0] = np.where(data.any(axis=1))[0]
        
     nsteps = len(steps)
     for i in range(1,nsteps+1):
@@ -2900,9 +2631,8 @@ def runPipeline():
         print('Step '+str(i)+' '+str(step))
         if len(step) == 1:
             # Atomic operations
-            if ('Regression' in step[0]) or ('TemporalFiltering' in step[0] and 'DCT' in Flavors[i][0]) or ('wholebrain' in Flavors[i][0]):
-                if ((step[0]=='TissueRegression' and 'GM' in Flavors[i][0] and 'wholebrain' not in Flavors[i][0]) or
-                   (step[0]=='MotionRegression' and 'nonaggr' in Flavors[i][0])): 
+            if ('Regression' in step[0]) or ('TemporalFiltering' in step[0] and 'DCT' in Flavors[i][0]) or ('TemporalFiltering' in step[0] and 'CompCor' in Flavors[i][0]) or ('wholebrain' in Flavors[i][0]):
+                if (step[0]=='TissueRegression' and 'GM' in Flavors[i][0] and 'wholebrain' not in Flavors[i][0]):
                     #regression constrained to GM
                     data, volData = Hooks[step[0]]([data,volData], Flavors[i][0], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                 else:
@@ -2916,9 +2646,8 @@ def runPipeline():
             r = np.empty((nTRs, 0))
             for j in range(len(step)):
                 opr = step[j]
-                if ('Regression' in opr) or ('TemporalFiltering' in opr and 'DCT' in Flavors[i][j]) or ('wholebrain' in Flavors[i][j]):
-                    if ((opr=='TissueRegression' and 'GM' in Flavors[i][j] and 'wholebrain' not in Flavors[i][j]) or
-                       (opr=='MotionRegression' and 'nonaggr' in Flavors[i][j])): 
+                if ('Regression' in opr) or ('TemporalFiltering' in opr and 'DCT' in Flavors[i][j]) or ('TemporalFiltering' in opr and 'CompCor' in Flavors[i][j]) or ('wholebrain' in Flavors[i][j]):
+                    if (opr=='TissueRegression' and 'GM' in Flavors[i][j] and 'wholebrain' not in Flavors[i][j]):
                         #regression constrained to GM
                         data, volData = Hooks[opr]([data,volData], Flavors[i][j], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                     else:    
@@ -2938,8 +2667,8 @@ def runPipeline():
     print('Done! Copy the resulting file...')
     rstring = ''.join(random.SystemRandom().choice(string.ascii_lowercase +string.ascii_uppercase + string.digits) for _ in range(8))
     outDir  = outpath()
-    prefix = config.session+'_' if  hasattr(config,'session')  else ''															  
-    outFile = prefix+config.fmriRun+'_prepro_'+rstring
+    prefix = config.session+'_' if  hasattr(config,'session')  else ''
+    outFile = config.subject+'_'+prefix+config.fmriRun+'_prepro_'+rstring
     if config.isCifti:
         # write to text file
         np.savetxt(op.join(outDir,outFile+'.tsv'),data, delimiter='\t', fmt='%.6f')
@@ -2948,6 +2677,12 @@ def runPipeline():
                                                                      config.fmriFile,
                                                                      op.join(outDir,outFile+'.dtseries.nii'))
         call(cmd,shell=True)
+    elif config.isGifti:
+        giiData = nib.load(config.fmriFile)
+        newData = np.zeros([nVertices, data.shape[1]])
+        newData[maskAll,:] = data
+        giiData.darrays = [nib.gifti.GiftiDataArray(newData[:,index]) for index in range(newData.shape[1])]
+        nib.save(giiData, op.join(outDir,outFile+'.func.gii'))
     else:
         niiImg = np.zeros((nRows*nCols*nSlices, nTRs),dtype=np.float32)
         niiImg[maskAll,:] = data
@@ -2960,7 +2695,7 @@ def runPipeline():
 
     print('Preprocessing complete. ')
     config.fmriFile_dn = op.join(outDir,outFile+config.ext)
-
+    config.confounds = None
     return
 
 ## 
@@ -2973,23 +2708,24 @@ def runPipeline():
 def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGrayPlot=False,do_plotFC=False):
     if config.queue: 
         priority=-100
-    config.suffix = '_hp2000_clean' if config.useFIX else '' 
     if config.isCifti:
         config.ext = '.dtseries.nii'
+    elif config.isGifti:
+        config.ext = '.func.gii'
     else:
         config.ext = '.nii.gz'
 
-    if config.overwrite:
-        overwriteFC = True
-
     if hasattr(config,'fmriFileTemplate'):
-        config.fmriFile = op.join(buildpath(), config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#suffix#',config.suffix))
-    else:
-        prefix = config.session+'_' if  hasattr(config,'session')  else ''																  
-        if config.isCifti:
-            config.fmriFile = op.join(buildpath(), prefix+config.fmriRun+'_Atlas'+config.suffix+'.dtseries.nii')
+        if hasattr(config, 'session'):
+            config.fmriFile = op.join(config.DATADIR, config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#fMRIsession#', config.session).replace('#subjectID#', config.subject))
         else:
-            config.fmriFile = op.join(buildpath(), prefix+config.fmriRun+config.suffix+'.nii.gz')
+            config.fmriFile = op.join(config.DATADIR, config.fmriFileTemplate.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject))
+    else:
+        prefix = config.session+'_' if  hasattr(config,'session')  else ''
+        if config.isCifti:
+            config.fmriFile = op.join(buildpath(), prefix+config.fmriRun+'_Atlas'+config.smoothing+config.ext)
+        else:
+            config.fmriFile = op.join(buildpath(), prefix+config.fmriRun+config.ext)
     
     if not op.isfile(config.fmriFile):
         print(config.fmriFile, 'missing')
@@ -3031,7 +2767,7 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
                 config.steps[cstep].append(opr[0])
                 config.Flavors[cstep].append(opr[2])
             prev_step = opr[1]                
-    precomputed = checkXML(config.fmriFile,config.steps,config.Flavors,outpath(),config.isCifti) 
+    precomputed = checkXML(config.fmriFile,config.steps,config.Flavors,outpath(),config.isCifti,config.isGifti) 
 
     if precomputed and not config.overwrite:
         config.fmriFile_dn = precomputed
@@ -3054,11 +2790,11 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         jobDir = op.join(config.outDir,'jobs')
         if not op.isdir(jobDir): 
             mkdir(jobDir)
-        jobName = 's{}_{}_{}_cifti{}_{}'.format(config.subject,config.fmriRun,config.pipelineName,config.isCifti,timestamp())
+        jobName = '{}_{}_{}_cifti{}_{}'.format(config.subject,config.fmriRun,config.pipelineName,config.isCifti,timestamp())
 
         # make a script
         thispythonfn  = '<< END\nimport sys\nsys.path.insert(0,"{}")\n'.format(config.sourceDir)
-        thispythonfn += 'from HCP_helpers import *\n'
+        thispythonfn += 'from fmriprepciftify_helpers import *\n'
         thispythonfn += 'logFid                  = open("{}","a+",1)\n'.format(op.join(jobDir,jobName+'.log'))
         thispythonfn += 'sys.stdout              = logFid\n'
         thispythonfn += 'sys.stderr              = logFid\n'
@@ -3070,7 +2806,6 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         thispythonfn += 'config.DATADIR          = "{}"\n'.format(config.DATADIR)
         thispythonfn += 'config.outDir          = "{}"\n'.format(config.outDir)
         thispythonfn += 'config.fmriRun          = "{}"\n'.format(config.fmriRun)
-        thispythonfn += 'config.useFIX           = {}\n'.format(config.useFIX)
         thispythonfn += 'config.useNative        = {}\n'.format(config.useNative)
         thispythonfn += 'config.pipelineName     = "{}"\n'.format(config.pipelineName)
         thispythonfn += 'config.overwrite        = {}\n'.format(config.overwrite)
@@ -3078,8 +2813,8 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         thispythonfn += 'config.queue            = {}\n'.format(config.queue)
         thispythonfn += 'config.preWhitening     = {}\n'.format(config.preWhitening)
         thispythonfn += 'config.isCifti          = {}\n'.format(config.isCifti)
+        thispythonfn += 'config.isGifti          = {}\n'.format(config.isGifti)
         thispythonfn += 'config.Operations       = {}\n'.format(config.Operations)
-        thispythonfn += 'config.suffix           = "{}"\n'.format(config.suffix)
         thispythonfn += 'config.ext              = "{}"\n'.format(config.ext)
         thispythonfn += 'config.fmriFile         = "{}"\n'.format(config.fmriFile)
         thispythonfn += 'config.Flavors          = {}\n'.format(config.Flavors)
@@ -3092,10 +2827,6 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
             thispythonfn += 'config.melodicFolder    = "{}"\n'.format(config.melodicFolder.replace('#fMRIrun#', config.fmriRun))
         if hasattr(config, 'session'): 
             thispythonfn += 'config.session    = "{}"\n'.format(config.session)
-        if hasattr(config, 'FCDir'): 
-            thispythonfn += 'config.FCDir    = "{}"\n'.format(config.FCDir)
-        thispythonfn += 'config.movementRegressorsFile      = "{}"\n'.format(config.movementRegressorsFile)
-        thispythonfn += 'config.movementRelativeRMSFile         = "{}"\n'.format(config.movementRelativeRMSFile)
         if precomputed and not config.overwrite:
             thispythonfn += 'config.fmriFile_dn = "{}"\n'.format(precomputed)
         else:
@@ -3110,7 +2841,6 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
                 thispythonfn += 'try:\n    remove(config.fmriFile_dn.replace(".gz",""))\nexcept OSError:\n    pass\n'
             if config.isCifti:
                 thispythonfn += 'for f in glob.glob(config.fmriFile_dn.replace(".dtseries.nii","*.tsv")): os.remove(f)\n'
-                thispythonfn += 'for f in glob.glob(config.fmriFile.replace(".dtseries.nii","*.tsv")): os.remove(f)\n'
         thispythonfn += 'logFid.close()\n'
         thispythonfn += 'END'
 
@@ -3173,11 +2903,6 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
                         remove(f)
                     except OSError:
                         pass
-                for f in glob.glob(config.fmriFile.replace(".dtseries.nii","*.tsv")):
-                    try:
-                        remove(f)
-                    except OSError:
-                        pass
 
     return True
 
@@ -3209,7 +2934,7 @@ def checkProgress(pause=60,verbose=False):
                     print('Waiting for {} jobs to complete...'.format(nleft))
             sleep(pause)
     if verbose:
-        print('All done!!')
+        print('All done!!' )
     return True
 
 # Compute Cronbach's Alpha
@@ -3296,6 +3021,51 @@ def factor_analysis(X,s=2):
 
     return B,L,var,fac,E
     
+def partialcorr_via_linreg(X):
+    # standardize
+    X -= X.mean(axis=0)
+    X /= X.std(axis=0) 
+    p = X.shape[1]
+    P_corr = np.zeros((p, p), dtype=np.float)
+    for i in range(p):
+        P_corr[i, i] = 1
+        for j in range(i+1, p):
+            idx    = np.ones(p, dtype=np.bool)
+            idx[i] = False
+            idx[j] = False
+            beta_i = linalg.lstsq(X[:, idx], X[:, j])[0]
+            beta_j = linalg.lstsq(X[:, idx], X[:, i])[0]
+            res_j  = X[:, j] - X[:, idx].dot(beta_i)
+            res_i  = X[:, i] - X[:, idx].dot(beta_j)
+            corr = stats.pearsonr(res_i, res_j)[0]
+            P_corr[i, j] = corr
+            P_corr[j, i] = corr
+    return P_corr
+
+def partialcorr_via_inverse_L1reg(X):
+    # standardize
+    X -= X.mean(axis=0)
+    X /= X.std(axis=0)
+    model = GraphLassoCV(verbose=True, assume_centered = True) #alphas=np.linspace(.1,1.,19).tolist(), 
+    model.fit(X)
+    return -cov2corr( model.precision_ ),model 
+
+def partialcorr_via_inverse(X):
+    # standardize
+    X -= X.mean(axis=0)
+    X /= X.std(axis=0)
+    # correlation
+    emp_corr = np.dot(X.T, X) / X.shape[0]
+    return -cov2corr(linalg.inv(emp_corr)), emp_corr
+
+def cov2corr( A ):
+    """
+    covariance matrix to correlation matrix.
+    """
+    d = np.sqrt(A.diagonal())
+    A = ((A.T/d).T)/d
+    return A
+
 # Print iterations progress
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '#'):
     """
