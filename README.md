@@ -1,6 +1,6 @@
 # rsDenoise
-A python-based, customisable and extensible pipeline for resting-state fMRI data<br>
-Authors: Paola Galdi (paola.galdi@gmail.com) and Julien Dubois (jcrdubois@gmail.com)<br>
+A python-based, customisable and extensible pipeline for resting-state fMRI data.<br>
+Authors: Paola Galdi (paola.galdi@gmail.com) and Julien Dubois (jcrdubois@gmail.com).<br>
 The software is provided as is without warranty of any kind.
 
 
@@ -10,7 +10,7 @@ The pipeline works with both volumetric (NIFTI) and surface data (either CIFTI o
 
 All functions needed for processing are grouped in three helpers file:
 - `HCP_helpers.py` contains the set of functions to work with the HCP directory structure
-- `fmriprepciftify_helpers.py` is meant to work with data previously processed with fmriprep, freesurfer and converted to HCP-like structure with ciftify
+- `fmriprepciftify_helpers.py` is meant to work with data previously processed with fmriprep and freesurfer, converted to HCP-like structure with ciftify
 - `fmriprep_helpers.py` is designed to work directly with fmriprep outputs, with or without freesurfer outputs
 
 The IPython notebooks provide a few examples of use (more can be found here: [HCP_MRI-behavior](https://github.com/adolphslab/HCP_MRI-behavior "HCP_MRI-behavior"))
@@ -89,16 +89,22 @@ config.operationDict = {
 ```
 
 ### Pipeline Operations
-Each Operation is built using the following template:
-```
-def OperationName(niiImg, flavor, masks, imgInfo)
-```
-*niiImg* contains the image data. 
-*flavor* is a list containing the Operation parameters.
-*masks* is a list including a whole brain mask and tissue masks (WM, GM, CSF).
-*imgInfo* is a list of image properties extracted from the header of the image.
+Custom operations can be provided by users, using the template detailed above. New functions need to be added to the Hooks data structure in the helpers file:
 
-Custom operations can be provided by users, but in the following we detail those included in the helpers file.
+```
+Hooks={
+   'MotionRegression'       : MotionRegression,
+   'Scrubbing'              : Scrubbing,
+   'TissueRegression'       : TissueRegression,
+   'Detrending'             : Detrending,
+   'TemporalFiltering'      : TemporalFiltering, 
+   'GlobalSignalRegression' : GlobalSignalRegression, 
+   'VoxelNormalization'     : VoxelNormalization,
+   'newFunction'            : newFunction,
+   }
+```
+
+In the following we detail those included in the helpers file.
 
 #### Voxel Normalization
 * <b>zscore:</b> convert each voxel’s time course to z-score (remove mean, divide by standard deviation).
