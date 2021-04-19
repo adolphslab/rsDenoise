@@ -159,6 +159,15 @@ config.operationDict = {
         ['TemporalFiltering',       3, ['DCT', 0.008]],
         ['Scrubbing',               5, ['FDmultiband', 0.25]]
         ],
+     'NSF_FD': [ # preregistered
+        ['VoxelNormalization',      1, ['demean']],
+        ['Detrending',              2, ['poly', 2, 'wholebrain']],
+        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
+        ['MotionRegression',        3, ['ICA-AROMA']],
+        ['GlobalSignalRegression',  3, ['GS']],
+        ['TemporalFiltering',       3, ['DCT', 0.008]],
+        ['Scrubbing',               5, ['FD', 0.25]]
+        ],
      'NSF1': [ # our CompCor, fmriprep's DCT (highpass)
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 2, 'wholebrain']],
@@ -2871,10 +2880,11 @@ def runPipeline():
         volData, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll) 
         # cifti
         print('Loading [cifti] data in memory... {}'.format(config.fmriFile.replace('.dtseries.nii','.tsv')))
-        if not op.isfile(config.fmriFile.replace('.dtseries.nii','.tsv')):
-            cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile,config.fmriFile.replace('.dtseries.nii','.tsv'))
+        tsvFile = config.fmriFile.replace('.dtseries.nii','.tsv').replace(buildpath(),outpath())
+        if not op.isfile(tsvFile):
+            cmd = 'wb_command -cifti-convert -to-text {} {}'.format(config.fmriFile,tsvFile)
             call(cmd,shell=True)
-        data = pd.read_csv(config.fmriFile.replace('.dtseries.nii','.tsv'),sep='\t',header=None,dtype=np.float32).values
+        data = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
     elif config.isGifti:
         prefix = '_'+config.session if  hasattr(config,'session')  else ''
         #volFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
