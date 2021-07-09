@@ -2437,18 +2437,16 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
             alltsFile = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
             if not op.isfile(alltsFile) or overwrite:
                 parcellate(overwrite)
-                ts = np.loadtxt(alltsFile)
-                volData, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll)
-                seedTS = np.nanmean(volData[np.where(seedParcel)[0],:],axis=0)
-                # censor time points that need censoring
-                if config.doScrubbing:
-                    censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
-                    censored = np.atleast_1d(censored)
-                    tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
-                    ts = ts[tokeep,:]
-                    seedTS = seedTS[tokeep]
-            else:
-                ts = np.loadtxt(alltsFile)
+            ts = np.loadtxt(alltsFile)
+            volData, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll)
+            seedTS = np.nanmean(volData[np.where(seedParcel)[0],:],axis=0)
+            # censor time points that need censoring
+            if config.doScrubbing:
+                censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
+                censored = np.atleast_1d(censored)
+                tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
+                ts = ts[tokeep,:]
+                seedTS = seedTS[tokeep]
             corrVec = np.zeros(ts.shape[1])
             for i in range(len(corrVec)):
                 corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, ts[:,i]]).T]))[0,1]
