@@ -76,10 +76,7 @@ import fnmatch
 import re
 import os
 import glob
-from statsmodels.nonparametric.smoothers_lowess import lowess
 import seaborn as sns
-import nistats
-from nistats import design_matrix
 #from astropy.timeseries import LombScargle
 
 #----------------------------------
@@ -502,7 +499,8 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
                 gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-GM_probseg.nii.gz')
                 csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-CSF_probseg.nii.gz')
             else: # format template_res-?
-                template = (config.space).split('_')[0]
+                #template = (config.space).split('_')[0]
+                template = config.space
                 wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-WM_probseg.nii.gz')
                 gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-GM_probseg.nii.gz')
                 csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-CSF_probseg.nii.gz')
@@ -815,7 +813,9 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                     prefix = ''
                     fmriRun = tokens[1] + '_' + tokens[2] 
                     space = tokens[3]
-                    suffix = '_'+tokens[4].replace(ext,'') if isGifti or isCifti else ''
+                    #line below might differ according to fmriprep version
+                    #suffix = '_'+tokens[4].replace(ext,'') if isGifti or isCifti else ''
+                    suffix = '_'+tokens[4].replace(ext,'')
                 outFile = subject+'_'+prefix+fmriRun+'_'+space+suffix+'_prepro_'+rcode+ext
                 return op.join(resDir,outFile)
     return None
@@ -2379,14 +2379,9 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
         fcFile    = op.join(FCDir,'{}_seed_{}_{}_FC.txt'.format(fileName,seedName, parcellationName))
     else:
         fcFile    = op.join(FCDir,'{}_seed_{}_vFC.txt'.format(fileName,seedName))
+    maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
     if not op.isfile(fcFile) or overwrite:
-        # load seed parcel
-        maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
-        if not config.maskParcelswithAll:     
-            maskAll  = np.ones(np.shape(maskAll), dtype=bool)
         seedParcel, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(seed, maskAll)
-        if config.maskParcelswithGM:
-            seedParcel[np.logical_not(maskGM_)] = 0;
         # retrieve volumetric processed data
         if config.isCifti or config.isGifti:
             prefix = '_'+config.session if  hasattr(config,'session')  else ''
@@ -2452,6 +2447,8 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
                     tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
                     ts = ts[tokeep,:]
                     seedTS = seedTS[tokeep]
+            else:
+                ts = np.loadtxt(alltsFile)
             corrVec = np.zeros(ts.shape[1])
             for i in range(len(corrVec)):
                 corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, ts[:,i]]).T]))[0,1]
@@ -3024,7 +3021,7 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         if config.isCifti:
             config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.surface+'_bold.dtseries.nii')
         elif config.isGifti:
-            config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.surface+'.func.gii')
+            config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.surface+'_bold.func.gii')
         else:
             config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
     
@@ -3156,14 +3153,14 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         elif do_computeFC:
             if seed is not None:
                 if vFC:
-                    thispythonfn += 'compute_seedFC(overwrite=overwriteFC,seed=seed, vFC=vFC)'
+                    thispythonfn += 'compute_seedFC(overwrite=overwriteFC,seed=seed, vFC=vFC)\n'
                 else:
-                    thispythonfn += 'compute_seedFC(overwrite=overwriteFC, seed=seed, vFC=vFC, parcellationFile=config.parcellationFile, parcellationName=config.parcellationName)'
+                    thispythonfn += 'compute_seedFC(overwrite=overwriteFC, seed=seed, vFC=vFC, parcellationFile=config.parcellationFile, parcellationName=config.parcellationName)\n'
             else:
                 if vFC:
-                    thispythonfn += 'compute_vFC(overwrite=overwriteFC)'
+                    thispythonfn += 'compute_vFC(overwrite=overwriteFC)\n'
                 else:
-                    thispythonfn += 'computeFC(overwrite=overwriteFC)'
+                    thispythonfn += 'computeFC(overwrite=overwriteFC)\n'
         if cleanup:
             if config.useMemMap:
                 thispythonfn += 'try:\n    remove(config.fmriFile.replace(".gz",""))\nexcept OSError:\n    pass\n'
