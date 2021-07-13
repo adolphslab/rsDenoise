@@ -2434,7 +2434,12 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
             print('Computing seed ROI to parcel FC')
             prefix = config.session+'_' if  hasattr(config,'session')  else ''
             tsDir = op.join(outpath(),parcellationName,prefix+config.fmriRun+config.ext)
-            alltsFile = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
+            if config.isGifti:
+                this_hemi = 'hemi-L' if 'hemi-L' in config.fmriFile else 'hemi-R'
+                suffix = '_'+this_hemi
+            else:
+                suffix = ''
+            alltsFile = op.join(tsDir,'allParcels'+suffix+'_{}.txt'.format(rstring))
             if not op.isfile(alltsFile) or overwrite:
                 parcellate(overwrite)
             ts = np.loadtxt(alltsFile)
