@@ -804,18 +804,22 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                 rcode = xfile.replace('.xml','')
                 tokens = op.basename(inFile).split('_')
                 subject = tokens[0]
-                if hasattr(config,'session'):
+                if 'ses-' in inFile:
                     prefix = tokens[1]+'_'
                     fmriRun = tokens[2] + '_' + tokens[3] 
                     space = tokens[4]
-                    suffix = '_'+tokens[5].replace(ext,'') if isGifti or isCifti else ''
+                    if isGifti or isCifti:
+                        suffix = '_'+tokens[5].replace(ext,'')
+                    else:
+                        suffix = '_'+tokens[5].replace(ext,'') if 'res' in space else ''
                 else:
                     prefix = ''
                     fmriRun = tokens[1] + '_' + tokens[2] 
                     space = tokens[3]
-                    #line below might differ according to fmriprep version
-                    #suffix = '_'+tokens[4].replace(ext,'') if isGifti or isCifti else ''
-                    suffix = '_'+tokens[4].replace(ext,'')
+                    if isGifti or isCifti:
+                        suffix = '_'+tokens[4].replace(ext,'')
+                    else:
+                        suffix = '_'+tokens[4].replace(ext,'') if 'res' in space else ''
                 outFile = subject+'_'+prefix+fmriRun+'_'+space+suffix+'_prepro_'+rcode+ext
                 return op.join(resDir,outFile)
     return None
@@ -2386,9 +2390,10 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
         if config.isCifti or config.isGifti:
             prefix = '_'+config.session if  hasattr(config,'session')  else ''
             inFile = op.join(buildpath(),config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
-            volFile = retrieve_preprocessed(inFile, config.Operations, outpath(), False, False)
+            outputPath = outpath() if (outputDir is None) else outputDir
+            volFile = retrieve_preprocessed(inFile, config.Operations, outputPath, False, False)
             if volFile is None:
-                sys.exit('Could not find preprocessed volumetric data to compute seed time series')
+                sys.exit('Could not find preprocessed volumetric data to compute seed time series: {}'.format(inFile))
         else:
             volFile = config.fmriFile_dn
         rstring = get_rcode(config.fmriFile_dn)
