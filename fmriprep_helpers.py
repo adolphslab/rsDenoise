@@ -2110,8 +2110,11 @@ def parcellate(overwrite=False):
 #  @param [bool] mergeSessions True if time series from different sessions should be merged before computing FC, otherwise FC from each session are averaged
 #  @param [bool] mergeRuns True if time series from different runs should be merged before computing FC, otherwise FC from each run are averaged (if mergeSessions is True mergeRuns is ignored and everything is concatenated)
 #  @param [CovarianceEstimator] cov_estimator is None, default sklearn.covariance.LedoitWolf estimator is used
+#  @param [str] delimiter String to specify delimiter in time series file, defaults to ','
 def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,outputDir=None,isCifti=False,isGifti=False,fcMatFile='fcMats.mat',
-             kind='correlation',overwrite=True,FCDir=None,mergeSessions=True,mergeRuns=False,cov_estimator=None):
+             kind='correlation',overwrite=True,FCDir=None,mergeSessions=True,mergeRuns=False,cov_estimator=None,delimiter=None):
+    if delimiter is None:
+        delimiter = '\t' if FCDir is None else ','
     if (not op.isfile(fcMatFile)) or overwrite:
         if cov_estimator is None:
             cov_estimator=LedoitWolf(assume_centered=False, block_size=1000, store_precision=False)
@@ -2154,13 +2157,13 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                                 tsDir     = op.join(outputPath,parcellation,prefix+config.fmriRun+ext)
                                 rstring   = get_rcode(preproFile)
                                 tsFile    = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
-                                ts        = np.genfromtxt(tsFile,delimiter="\t")
+                                ts        = np.genfromtxt(tsFile,delimiter=delimiter)
                             else:
                                 continue
                         else: # retrieve data from FCDir
                             tsFile = op.join(FCDir,config.subject+'_'+config.session+'_'+config.fmriRun+'_ts.txt')
                             if op.isfile(tsFile):
-                                ts = np.genfromtxt(tsFile,delimiter=",")
+                                ts = np.genfromtxt(tsFile,delimiter=delimiter)
                             else:
                                 continue
                         # standardize
@@ -2191,13 +2194,13 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                             tsDir     = op.join(outpath(),config.parcellationName,config.fmriRun+ext)
                             rstring   = get_rcode(preproFile)
                             tsFile    = op.join(tsDir,'allParcels_{}.txt'.format(rstring))
-                            ts        = np.genfromtxt(tsFile,delimiter="\t")
+                            ts        = np.genfromtxt(tsFile,delimiter=delimiter)
                         else:
                             continue
                     else:
                         tsFile = op.join(FCDir,config.subject+'_'+config.fmriRun+'_ts.txt')
                         if op.isfile(tsFile):
-                            ts = np.genfromtxt(tsFile,delimiter=",")
+                            ts = np.genfromtxt(tsFile,delimiter=delimiter)
                         else:
                             continue
                     # standardize
