@@ -811,7 +811,7 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                     if isGifti or isCifti:
                         suffix = '_'+tokens[5].replace(ext,'')
                     else:
-                        suffix = '_'+tokens[5].replace(ext,'') if 'res' in space else ''
+                        suffix = '_'+tokens[5].replace(ext,'') if 'res' in tokens[5] else ''
                 else:
                     prefix = ''
                     fmriRun = tokens[1] + '_' + tokens[2] 
@@ -819,7 +819,7 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                     if isGifti or isCifti:
                         suffix = '_'+tokens[4].replace(ext,'')
                     else:
-                        suffix = '_'+tokens[4].replace(ext,'') if 'res' in space else ''
+                        suffix = '_'+tokens[4].replace(ext,'') if 'res' in tokens[4] else ''
                 outFile = subject+'_'+prefix+fmriRun+'_'+space+suffix+'_prepro_'+rcode+ext
                 return op.join(resDir,outFile)
     return None
