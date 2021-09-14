@@ -2600,7 +2600,8 @@ def defConVec(df,confound,session):
 #  
 def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFile='', iPerm=[0], SM='PMAT24_A_CR', session='REST12', decon='decon', fctype='Pearson', model='Finn',outDir='',confounds=['gender','age','age^2','gender*age','gender*age^2','brainsize','motion','recon']):
     data         = sio.loadmat(fcMatFile)
-    edges        = data['fcMats_'+fctype]
+    #edges        = data['fcMats_'+fctype] #might be needed for backward compatibility
+    edges        = data['fcMats']
 
     if len(keepEdgeFile)>0:
         keepEdges = np.loadtxt(keepEdgeFile).astype(bool)
@@ -2786,8 +2787,8 @@ def runPredictionParJD(fcMatFile, dataFile, SM='PMAT24_A_CR', iPerm=[0], confoun
     iCV = 0
     config.scriptlist = []
     for el in np.unique(df['Family_ID']):
-        test_index    = list(df.ix[df['Family_ID']==el].index)
-        test_subjects = list(df.ix[df['Family_ID']==el]['Subject'])
+        test_index    = list(df.loc[df['Family_ID']==el].index)
+        test_subjects = list(df.loc[df['Family_ID']==el]['Subject'])
         jPerm = list()
         for thisPerm in iPerm:
             outFile = op.join(outDir,'{:04d}'.format(thisPerm),'{}.mat'.format(
