@@ -1997,7 +1997,7 @@ def parcellate(overwrite=False):
                 if not op.isfile(smoothed_file):
                     hm = 'lh' if this_hemi == 'hemi-L' else 'rh'
                     cmd = 'mri_surf2surf --hemi {} --s {} --sval {} --cortex --fwhm-trg {} --tval {}'.format(
-                       hm, config.space.split('_')[0],config.fmriFile, config.smoothing, smoothed_file)
+                       hm, config.surface.split('_')[0],config.fmriFile, config.smoothing, smoothed_file)
                     call(cmd, shell=True)
                 giiData = nib.load(smoothed_file)
             else:
@@ -2057,7 +2057,7 @@ def parcellate(overwrite=False):
                 if not op.isfile(smoothed_file):
                     hm = 'lh' if this_hemi == 'hemi-L' else 'rh'
                     cmd = 'mri_surf2surf --hemi {} --s {} --sval {} --cortex --fwhm-trg {} --tval {}'.format(
-                       hm, config.space.split('_')[0],config.fmriFile_dn, config.smoothing, smoothed_file)
+                       hm, config.surface.split('_')[0],config.fmriFile_dn, config.smoothing, smoothed_file)
                     call(cmd, shell=True)
                 giiData = nib.load(smoothed_file)
             else:
