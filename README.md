@@ -14,7 +14,7 @@ All functions needed for processing are grouped in three helpers file:
 - `fmriprep_helpers.py` is designed to work directly with fmriprep outputs, with or without freesurfer outputs
 
 The IPython notebooks provide a few examples of use (more can be found here: [HCP_MRI-behavior](https://github.com/adolphslab/HCP_MRI-behavior "HCP_MRI-behavior"))
-A minimal script to launch the pipeline is provided in `runPipeline_example.py`
+A minimal script to launch the pipeline is provided in `runPipeline_example.py`. A command line wrapper is provided in `rsDenoise.py`.
 Example output for a HCP subject [here](https://caltech.box.com/s/t7zaw05wcnudl7b2jvn69wa2fvzlcc4j "outputs,preGLM0 pipeline").
 
 ## Overview
