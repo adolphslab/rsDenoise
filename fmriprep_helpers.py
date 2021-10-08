@@ -2393,7 +2393,7 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
         if config.isCifti or config.isGifti:
             prefix = '_'+config.session if  hasattr(config,'session')  else ''
             inFile = op.join(buildpath(),config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
-            outputPath = outpath() if (outputDir is None) else outputDir
+            outputPath = outpath() if (config.outputDir is None) else config.outputDir
             volFile = retrieve_preprocessed(inFile, config.Operations, outputPath, False, False)
             if volFile is None:
                 sys.exit('Could not find preprocessed volumetric data to compute seed time series: {}'.format(inFile))
