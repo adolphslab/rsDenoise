@@ -1,27 +1,28 @@
 import sys, argparse
+sys.path.append('/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise')
 from fmriprep_helpers import *
 
 ### Set parameters #################################################
 # config is a global variable used by several functions
 
 # Where does the data live?
-config.DATADIR = '/storage/gablab001/data/abide/fsseg/Caltech_derivatives/'
-config.sourceDir = os.getcwd() # or replace with path to source code
+config.DATADIR = '/projects/MINDLAB2016_MR-SensCogFromNeural/scratch/rsDenoise/derivatives/'
+config.sourceDir = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise' # or replace with path to source code
 
 # Processing options
 config.preprocessing = 'fmriprep' 
 config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
 
 # Other options
-config.queue = False
-config.sgeopts = '-l mem_free=25G -pe openmp 6 -q long.q'
+config.queue = True
+config.sgeopts  = '-pe threaded 2-2 -q highmem_short.q -l h_vmem=16G -v OMP_NUM_THREADS=$NSLOTS'
 config.overwrite = False
 
 # interpolate over non-contiguous voxels
 config.n_contiguous = 1 # 1 does not interpolate over timepoint e.g 5 
 
 # Define fMRI runs
-fmriRuns = ['task-rest_run-1']
+fmriRuns = ['task-rest_run-1','task-rest_run-2']
 
 #####################################################################
 
@@ -38,16 +39,19 @@ def main():
     config.nParcels = args.nParcels
     vFC = args.vFC
     subjects = np.loadtxt(args.input,dtype=str,ndmin=1)
+    if not 'sub-' in subjects[0]: subjects = np.array(['sub-' + s for s in subjects])
     config.pipelineName            = args.pipeline 
     config.Operations              = config.operationDict[config.pipelineName]
 
     if args.seedFolder is not None: # Compute seed FC
         if config.isCifti or config.isGifti:
-            for config.subject in args.subjects:
+            for config.subject in subjects:
+                print(args.seedFolder)
+                args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
+                print(args.seedFolder)
                 iSurf = 0
                 for config.surface in args.surface:
                     config.parcellationFile = args.parcellationFile[iSurf]
-                    args.seedFolder.replace('#subjectID#',config.subject)
                     sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
                     if len(sessions) > 0:
                         for config.session in sessions:
@@ -73,12 +77,12 @@ def main():
                                 else:
                                     config.FCDir = args.FCdir                           
                                 runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=vFC)
-                    args.seedFolder.replace(config.subject,'#subjectID#')            
                     iSurf = iSurf + 1
+                args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')            
         else:
             config.parcellationFile = args.parcellationFile[0]
             for config.subject in subjects:
-                args.seedFolder.replace('#subjectID#',config.subject)
+                args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
                 sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
                 if len(sessions) > 0:
                     for config.session in sessions:
@@ -104,7 +108,7 @@ def main():
                             else:
                                 config.FCDir = args.FCdir                           
                             runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=vFC)
-                args.seedFolder.replace(config.subject,'#subjectID#')
+                args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')
     else: # compute either parcel-to-parcel or voxel/vertex-wise whole brain FC
         if config.isCifti or config.isGifti:
             if args.FCdir is None:
@@ -145,6 +149,11 @@ def main():
                     for config.fmriRun in fmriRuns:
                         print('Processing:',config.subject, config.fmriRun)
                         runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=vFC)        
+    # launch array job (if there is something to do)
+    if len(config.scriptlist)>0:
+        JobID = fnSubmitJobArrayFromJobList()
+        config.joblist.append(JobID.split(b'.')[0])
+        checkProgress(pause=60,verbose=False)
 
 
 def create_parser():
