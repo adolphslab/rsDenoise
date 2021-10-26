@@ -116,9 +116,15 @@ def get_confounds():
     if hasattr(config, 'session') and config.session:
         confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session,'func', 
 		config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
+        if not op.isfile(confoundsFile): # try older fmriprep file name
+            confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session,'func', 
+	       	    config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
     else:
         confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, 'func', 
 		config.subject+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
+        if not op.isfile(confoundsFile): # try older fmriprep file name
+            confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, 'func', 
+		    config.subject+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
     data = pd.read_csv(confoundsFile, delimiter='\t')
     data.replace('n/a', 0, inplace=True)
     config.confounds = data
@@ -499,9 +505,11 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
                 gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-GM_probseg.nii.gz')
                 csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-CSF_probseg.nii.gz')
             else: # format template_res-?
-                #template = (config.space).split('_')[0]
                 template = config.space
                 wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-WM_probseg.nii.gz')
+                if not op.isfile(wmFilein): # trying old fmriprep file names
+                  template = (config.space).split('_')[0]
+                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-WM_probseg.nii.gz')
                 gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-GM_probseg.nii.gz')
                 csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-CSF_probseg.nii.gz')
 
