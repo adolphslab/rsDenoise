@@ -1978,7 +1978,7 @@ def parcellate(overwrite=False):
         # read original volume
         if config.isCifti:
             if config.smoothing:
-                smoothed_file = config.fmriFile.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext))
+                smoothed_file = config.fmriFile.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext)).replace(buildpath(),outpath())
                 if not op.isfile(smoothed_file):
                     cmd = 'wb_command -cifti-smoothing {} {} {} COLUMN {}'.format(
                        config.fmriFile_dn, config.smoothing, config.smoothing, smoothed_file)
@@ -1993,7 +1993,7 @@ def parcellate(overwrite=False):
             data = pd.read_csv(tsvFile,sep='\t',header=None,dtype=np.float32).values
         elif config.isGifti:
             if config.smoothing:
-                smoothed_file = config.fmriFile.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext))
+                smoothed_file = config.fmriFile.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext)).replace(buildpath(),outpath())
                 if not op.isfile(smoothed_file):
                     hm = 'lh' if this_hemi == 'hemi-L' else 'rh'
                     cmd = 'mri_surf2surf --hemi {} --s {} --sval {} --cortex --fwhm-trg {} --tval {}'.format(
@@ -2012,9 +2012,14 @@ def parcellate(overwrite=False):
             allparcels = allparcels[maskAll] #TODO: check
         else:
             if config.smoothing:
-                img = nib.load(config.fmriFile)
-                nRows, nCols, nSlices, nTRs = img.header.get_data_shape()
-                img = image.smooth_img(img,config.smoothing)
+                smoothed_file = config.fmriFile.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext)).replace(buildpath(),outpath())
+                if not op.isfile(smoothed_file):
+                    img = nib.load(config.fmriFile)
+                    nRows, nCols, nSlices, nTRs = img.header.get_data_shape()
+                    img = image.smooth_img(img,config.smoothing)
+                    nib.save(img,smoothed_file)
+                else:
+                    img = nib.load(smoothed_file)
                 data = np.asarray(img.dataobj).reshape((nRows*nCols*nSlices,nTRs), order='F')
             else:
                 data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
@@ -2071,9 +2076,14 @@ def parcellate(overwrite=False):
             data = data[maskAll,:]
         else:
             if config.smoothing:
-                img = nib.load(config.fmriFile_dn)
-                nRows, nCols, nSlices, nTRs = img.header.get_data_shape()
-                img = image.smooth_img(img,config.smoothing)
+                smoothed_file = config.fmriFile_dn.replace(config.ext,'_smooth_{}fwhm{}'.format(config.smoothing, config.ext))
+                if not op.isfile(smoothed_file):
+                    img = nib.load(config.fmriFile_dn)
+                    nRows, nCols, nSlices, nTRs = img.header.get_data_shape()
+                    img = image.smooth_img(img,config.smoothing)
+                    nib.save(img,smoothed_file)
+                else:
+                    img = nib.load(smoothed_file)
                 data = np.asarray(img.dataobj).reshape((nRows*nCols*nSlices,nTRs), order='F')
             else:
                 data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
