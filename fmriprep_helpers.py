@@ -500,18 +500,20 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             call(cmd,shell=True)
 
         else: # only fmriprep
+            session = config.session if hasattr(config,'session') else ''
+            prefix = '_'+config.session if hasattr(config,'session') else ''
             if config.space == 'T1w':
-                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-WM_probseg.nii.gz')
-                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-GM_probseg.nii.gz')
-                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_label-CSF_probseg.nii.gz')
+                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
+                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-GM_probseg.nii.gz')
+                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-CSF_probseg.nii.gz')
             else: # format template_res-?
                 template = config.space
-                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-WM_probseg.nii.gz')
+                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-WM_probseg.nii.gz')
                 if not op.isfile(wmFilein): # trying old fmriprep file names
                   template = (config.space).split('_')[0]
-                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-WM_probseg.nii.gz')
-                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-GM_probseg.nii.gz')
-                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, 'anat',config.subject+'_space-'+template+'_label-CSF_probseg.nii.gz')
+                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-WM_probseg.nii.gz')
+                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-GM_probseg.nii.gz')
+                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-CSF_probseg.nii.gz')
 
             # load nii 
             ref = nib.load(wmFilein)
