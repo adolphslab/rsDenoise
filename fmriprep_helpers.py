@@ -55,6 +55,7 @@ from scipy import stats, linalg,signal
 import scipy.io as sio
 from scipy.spatial.distance import pdist, squareform
 from scipy.ndimage.morphology import binary_closing, binary_dilation, binary_erosion, binary_opening, generate_binary_structure
+from scipy.ndimage.filters import gaussian_filter1d
 import nipype.interfaces.fsl as fsl
 from subprocess import call, check_output, CalledProcessError, Popen
 import nibabel as nib
@@ -308,8 +309,7 @@ def filter_regressors(regressors, filtering, nTRs, TR):
             regressors = clean(regressors, detrend=False, standardize=False, 
                                   t_r=TR, high_pass=filtering[1], low_pass=filtering[2])
         elif filtering[0] == 'Gaussian':
-            w = signal.gaussian(11,std=filtering[1])
-            regressors = signal.lfilter(w,1,regressors, axis=0)  
+            regressors = gaussian_filter1d(regressors, filtering[1], axis=0)  
     return regressors
 
 ## 
@@ -1678,10 +1678,9 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
             niiImg[1] = x[NR:-NR,:].T
             
     elif flavor[0] == 'Gaussian':
-        w = signal.gaussian(11,std=flavor[1])
-        niiImg[0] = signal.lfilter(w,1,data)
+        niiImg[0] = gaussian_filter1d(data,flavor[1])
         if niiImg[1] is not None:
-            niiImg[1] = signal.lfilter(w,1,data2)
+            niiImg[1] = gaussian_filter1d(data2,flavor[1])
     elif flavor[0] == 'CompCor':
         X = get_confounds()
         X = X.filter(regex=("t_comp_cor_*"))
