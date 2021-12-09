@@ -49,7 +49,7 @@ def main():
         args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
         iSurf = 0
         for config.surface in args.surface:
-          if args.parcellationFile is not None:
+          if len(args.parcellationFile) > 0:
             config.parcellationFile = args.parcellationFile[iSurf]
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
@@ -105,7 +105,7 @@ def main():
           iSurf = iSurf + 1
         args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
     else: # process nifti files
-      if args.parcellationFile is not None:
+      if len(args.parcellationFile) > 0:
         config.parcellationFile = args.parcellationFile[0]
         for config.subject in subjects:
           args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
@@ -157,7 +157,7 @@ def main():
           args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')
   else: # compute either parcel-to-parcel or voxel/vertex-wise whole brain FC (or skip FC)
     if config.isCifti or config.isGifti:
-      if args.parcellationFile is not None:
+      if len(args.parcellationFile) > 0:
         if args.FCdir is None:
           config.FCDir = op.join(config.outDir,config.pipelineName+'_surf_FC')
         else:
@@ -201,7 +201,7 @@ def main():
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
             iSurf = iSurf + 1
     else: # process nifti files
-      if args.parcellationFile is not None:
+      if len(args.parcellationFile) > 0:
         config.parcellationFile = args.parcellationFile[0]
         if args.FCdir is None:
           config.FCDir = op.join(config.outDir,config.pipelineName+'_vol_FC')
@@ -255,7 +255,7 @@ def create_parser():
             default=None, help="""Parcellation name, used in output file names. Only required for parcel-wise FC. 
             To be specified together with -parcelFile and -parcelName""")
   parser.add_argument('-parcelFile', '--parcellationFile', metavar='PARCELLATION_FILE', type=str, nargs='+',
-            default=[None], help="""Path(s) to parcellation file. More than one can be specified, but they need
+            default=[], help="""Path(s) to parcellation file. More than one can be specified, but they need
             to match order and number of surfaces. Only required for parcel-wise FC. To be specified together with -parcelFile and -parcelName""")
   parser.add_argument('-n', '--nParcels', metavar='N_PARCELS', type=int,
             default=None, help="""Number of parcels in parcellation. Only required for parcel-wise FC. To be specified together with -parcelFile and -parcelName""")
