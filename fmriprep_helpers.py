@@ -504,16 +504,28 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             prefix = '_'+config.session if hasattr(config,'session') else ''
             if config.space == 'T1w':
                 wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
+                if not op.isfile(wmFilein): # trying adding run
+                  prefix = prefix + '_' + config.fmriRun
+                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
                 gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-GM_probseg.nii.gz')
                 csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-CSF_probseg.nii.gz')
             else: # format template_res-?
                 template = config.space
-                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-WM_probseg.nii.gz')
-                if not op.isfile(wmFilein): # trying old fmriprep file names
-                  template = (config.space).split('_')[0]
-                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-WM_probseg.nii.gz')
-                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-GM_probseg.nii.gz')
-                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_space-'+template+'_label-CSF_probseg.nii.gz')
+                wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
+                if len(wmFiles) > 0: 
+                    wmFilein = wmFiles[0]
+                    gmFilein = wmFilein.replace('WM','GM')
+                    csfFilein = wmFilein.replace('WM','CSF')
+                else: # trying old fmriprep file names (no res-?)
+                    template = (config.space).split('_')[0]
+                    wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
+                    if len(wmFiles) > 0: 
+                        wmFilein = wmFiles[0]
+                        gmFilein = wmFilein.replace('WM','GM')
+                        csfFilein = wmFilein.replace('WM','CSF')
+                    else: # files not found
+                        print('Error! Tissue file not found:',op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz')) 
+                        return None
 
             # load nii 
             ref = nib.load(wmFilein)
