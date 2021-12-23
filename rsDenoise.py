@@ -10,7 +10,7 @@ config.DATADIR = '/projects/MINDLAB2016_MR-SensCogFromNeural/scratch/rsDenoise/d
 config.sourceDir = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise' # or replace with path to source code
 
 # Processing options
-config.preprocessing = 'fmriprep' 
+config.preprocessing = 'freesurfer' 
 config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
 
 # Other options
