@@ -6,24 +6,23 @@ from fmriprep_helpers import *
 # config is a global variable used by several functions
 
 # Where does the data live?
-config.DATADIR = '/projects/MINDLAB2016_MR-SensCogFromNeural/scratch/rsDenoise/derivatives/'
-config.sourceDir = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise' # or replace with path to source code
+config.DATADIR = '/storage/gablab001/data/abide/fsseg/Caltech_derivatives/'
+config.sourceDir = os.getcwd() # or replace with path to source code
 
 # Processing options
 config.preprocessing = 'fmriprep' 
 config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
 
 # Other options
-config.queue = True
-config.sgeopts  = '-pe threaded 2-2 -q highmem_short.q -l h_vmem=16G -v OMP_NUM_THREADS=$NSLOTS'
+config.queue = False
+config.sgeopts = '-l mem_free=25G -pe openmp 6 -q long.q'
 config.overwrite = False
 
 # interpolate over non-contiguous voxels
 config.n_contiguous = 1 # 1 does not interpolate over timepoint e.g 5 
 
 # Define fMRI runs
-fmriRuns = ['task-rest_run-1','task-rest_run-2']
-
+fmriRuns = ['task-rest_run-1']
 #####################################################################
 
 def main():
