@@ -51,6 +51,7 @@ def main():
         for config.surface in args.surface:
           if len(args.parcellationFile) > 0:
             config.parcellationFile = args.parcellationFile[iSurf]
+            config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
@@ -106,8 +107,9 @@ def main():
         args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
     else: # process nifti files
       if len(args.parcellationFile) > 0:
-        config.parcellationFile = args.parcellationFile[0]
         for config.subject in subjects:
+          config.parcellationFile = args.parcellationFile[0]
+          config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
           args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
@@ -134,6 +136,7 @@ def main():
                 else:
                   config.FCDir = args.FCdir               
                 runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
+          args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
       else: # compute seed to voxel FC
         for config.subject in subjects:
           args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
@@ -166,6 +169,7 @@ def main():
           iSurf = 0
           for config.surface in args.surface:
             config.parcellationFile = args.parcellationFile[iSurf]
+            config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
@@ -202,12 +206,13 @@ def main():
             iSurf = iSurf + 1
     else: # process nifti files
       if len(args.parcellationFile) > 0:
-        config.parcellationFile = args.parcellationFile[0]
         if args.FCdir is None:
           config.FCDir = op.join(config.outDir,config.pipelineName+'_vol_FC')
         else:
           config.FCDir = args.FCdir 
         for config.subject in subjects:
+          config.parcellationFile = args.parcellationFile[0]
+          config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
