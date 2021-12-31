@@ -824,26 +824,11 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                 continue
             else:    
                 rcode = xfile.replace('.xml','')
-                tokens = op.basename(inFile).split('_')
-                subject = tokens[0]
-                if 'ses-' in inFile:
-                    prefix = tokens[1]+'_'
-                    fmriRun = tokens[2] + '_' + tokens[3] 
-                    space = tokens[4]
-                    if isGifti or isCifti:
-                        suffix = '_'+tokens[5].replace(ext,'')
-                    else:
-                        suffix = '_'+tokens[5].replace(ext,'') if 'res' in tokens[5] else ''
+                outFile = glob.glob(op.join(resDir, '*_prepro_'+rcode+ext))
+                if len(outFile)>0:
+                    return outFile[0]
                 else:
-                    prefix = ''
-                    fmriRun = tokens[1] + '_' + tokens[2] 
-                    space = tokens[3]
-                    if isGifti or isCifti:
-                        suffix = '_'+tokens[4].replace(ext,'')
-                    else:
-                        suffix = '_'+tokens[4].replace(ext,'') if 'res' in tokens[4] else ''
-                outFile = subject+'_'+prefix+fmriRun+'_'+space+suffix+'_prepro_'+rcode+ext
-                return op.join(resDir,outFile)
+                    return None
     return None
 	
 ## 
