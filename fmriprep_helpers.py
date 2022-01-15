@@ -426,11 +426,16 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
     
     if not op.isfile(GMmaskFileout) or overwrite:
         if config.preprocessing == 'freesurfer': # output of fmriprep + freesurfer
+            session = config.session if hasattr(config,'session') else ''
             prefix = config.session+'_' if  hasattr(config,'session')  else ''
-            wmparcFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session if  hasattr(config,'session')  else '', 'func',
-                config.subject+'_'+prefix+config.fmriRun+'_space-'+config.space+'_desc-aseg_dseg.nii.gz')
-            ribbonFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session if  hasattr(config,'session')  else '', 'func',
-                config.subject+'_'+prefix+config.fmriRun+'_space-'+config.space+'_desc-aparcaseg_dseg.nii.gz')
+            template = config.space
+            wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'*_desc-aseg_dseg.nii.gz'))
+            if len(wmFiles) > 0: 
+               wmparcFilein = wmFiles[0]
+               ribbonFilein = wmparcFilein.replace('aseg_dseg','aparcaseg_dseg')
+            else: # files not found
+               print('Error! Tissue file not found:',op.join(config.DATADIR, 'fmriprep', config.subject, session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               return None
             ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
             wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
             # make identity matrix to feed to flirt for resampling
