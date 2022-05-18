@@ -52,7 +52,7 @@ def main():
           if len(args.parcellationFile) > 0:
             config.parcellationFile = args.parcellationFile[iSurf]
             config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
-            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
                 for config.fmriRun in fmriRuns:
@@ -78,7 +78,7 @@ def main():
                     config.FCDir = args.FCdir               
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
           else: # compute seed to vertex FC
-            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
                 for config.fmriRun in fmriRuns:
@@ -111,7 +111,7 @@ def main():
           config.parcellationFile = args.parcellationFile[0]
           config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
           args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
-          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
               for config.fmriRun in fmriRuns:
@@ -140,7 +140,7 @@ def main():
       else: # compute seed to voxel FC
         for config.subject in subjects:
           args.seedFolder = args.seedFolder.replace('#subjectID#',config.subject)
-          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
               for config.fmriRun in fmriRuns:
@@ -170,7 +170,7 @@ def main():
           for config.surface in args.surface:
             config.parcellationFile = args.parcellationFile[iSurf]
             config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
-            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
                 for config.fmriRun in fmriRuns:
@@ -186,7 +186,7 @@ def main():
         for config.subject in subjects: 
           iSurf = 0
           for config.surface in args.surface:
-            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+            sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
                 for config.fmriRun in fmriRuns:
@@ -213,7 +213,7 @@ def main():
         for config.subject in subjects:
           config.parcellationFile = args.parcellationFile[0]
           config.parcellationFile = config.parcellationFile.replace('#subjectID#',config.subject)
-          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
               for config.fmriRun in fmriRuns:
@@ -226,7 +226,7 @@ def main():
               runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)    
       else: # no parcellation file provided
         for config.subject in subjects:
-          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,'fmriprep',config.subject)) if fpath.startswith('ses-')]
+          sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
               for config.fmriRun in fmriRuns:

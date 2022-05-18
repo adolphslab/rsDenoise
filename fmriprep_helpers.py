@@ -32,6 +32,7 @@ class config(object):
     headradius         = 50 # 50mm as in Powers et al. 2012
     smoothing          = None
     smoothSeed         = False
+    excludeTimePoints  = ''
     # these variables are initialized here and used later in the pipeline, do not change
     filtering   = []
     doScrubbing = False
@@ -86,9 +87,9 @@ import seaborn as sns
 #sub-100307_task-REST_acq-RL_run-01_space-MNI152NLin6Asym_res-2_desc-preproc_bold.nii.gz
 def buildpath():
     if hasattr(config, 'session') and config.session:
-        return op.join(config.DATADIR, 'fmriprep', config.subject, config.session, 'func')
+        return op.join(config.DATADIR, config.subject, config.session, 'func')
     else:
-        return op.join(config.DATADIR, 'fmriprep', config.subject, 'func')
+        return op.join(config.DATADIR, config.subject, 'func')
 
 #----------------------------------
 # function to build dinamycally output path (BIDS-like) 
@@ -115,16 +116,16 @@ def get_confounds():
     if hasattr(config, 'confounds') and not (config.confounds is None):
         return config.confounds
     if hasattr(config, 'session') and config.session:
-        confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session,'func', 
+        confoundsFile =  op.join(config.DATADIR, config.subject, config.session,'func', 
 		config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
         if not op.isfile(confoundsFile): # try older fmriprep file name
-            confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session,'func', 
+            confoundsFile =  op.join(config.DATADIR, config.subject, config.session,'func', 
 	       	    config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
     else:
-        confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, 'func', 
+        confoundsFile =  op.join(config.DATADIR, config.subject, 'func', 
 		config.subject+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
         if not op.isfile(confoundsFile): # try older fmriprep file name
-            confoundsFile =  op.join(config.DATADIR, 'fmriprep', config.subject, 'func', 
+            confoundsFile =  op.join(config.DATADIR, config.subject, 'func', 
 		    config.subject+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
     data = pd.read_csv(confoundsFile, delimiter='\t')
     data.replace('n/a', 0, inplace=True)
@@ -257,7 +258,7 @@ config.operationDict = {
     'C0': [ # same as C, with very small change to force recomputation after bug discovered in polynomial filtering 2/12/2018
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 1, 'wholebrain']],
-        ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
+        ['TissueRegression',        3, ['CompCor', 5, 'fmriprep', 'wholebrain']],
         ['TissueRegression',        3, ['GM', 'wholebrain']], 
         ['GlobalSignalRegression',  3, ['GS']],
         ['MotionRegression',        3, ['censoring']],
@@ -429,12 +430,12 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             session = config.session if hasattr(config,'session') else ''
             prefix = config.session+'_' if  hasattr(config,'session')  else ''
             template = config.space
-            wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'*_desc-aseg_dseg.nii.gz'))
+            wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'*_desc-aseg_dseg.nii.gz'))
             if len(wmFiles) > 0: 
                wmparcFilein = wmFiles[0]
                ribbonFilein = wmparcFilein.replace('aseg_dseg','aparcaseg_dseg')
             else: # files not found
-               print('Error! Tissue file not found:',op.join(config.DATADIR, 'fmriprep', config.subject, session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
                return None
             ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
             wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
@@ -508,28 +509,28 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             session = config.session if hasattr(config,'session') else ''
             prefix = '_'+config.session if hasattr(config,'session') else ''
             if config.space == 'T1w':
-                wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
+                wmFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
                 if not op.isfile(wmFilein): # trying adding run
                   prefix = prefix + '_' + config.fmriRun
-                  wmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
-                gmFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-GM_probseg.nii.gz')
-                csfFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat', config.subject+prefix+'_label-CSF_probseg.nii.gz')
+                  wmFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
+                gmFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-GM_probseg.nii.gz')
+                csfFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-CSF_probseg.nii.gz')
             else: # format template_res-?
                 template = config.space
-                wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
+                wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
                 if len(wmFiles) > 0: 
                     wmFilein = wmFiles[0]
                     gmFilein = wmFilein.replace('WM','GM')
                     csfFilein = wmFilein.replace('WM','CSF')
                 else: # trying old fmriprep file names (no res-?)
                     template = (config.space).split('_')[0]
-                    wmFiles =  glob.glob(op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
+                    wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz'))
                     if len(wmFiles) > 0: 
                         wmFilein = wmFiles[0]
                         gmFilein = wmFilein.replace('WM','GM')
                         csfFilein = wmFilein.replace('WM','CSF')
                     else: # files not found
-                        print('Error! Tissue file not found:',op.join(config.DATADIR, 'fmriprep', config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz')) 
+                        print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz')) 
                         return None
 
             # load nii 
@@ -1247,14 +1248,36 @@ def MotionRegression(niiImg, flavor, masks, imgInfo):
         
     if config.doScrubbing:
         nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
-        toCensor = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
-        npts = toCensor.size
+        censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
+        censored = np.atleast_1d(censored)
+        toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+        if op.isfile(toExclude):
+            excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+            censored = np.union1d(censored,np.where(excluded==0)[0])
+            censored.sort()
+            censored = censored.astype(int)
+        npts = censored.size
         if npts==1:
-            toCensor=np.reshape(toCensor,(npts,))
+            censored=np.reshape(censored,(npts,))
         toReg = np.zeros((nTRs, npts),dtype=np.float32)
         for i in range(npts):
-            toReg[toCensor[i],i] = 1
+            toReg[censored[i],i] = 1
         X = np.concatenate((X, toReg), axis=1)
+    else:
+        toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+        if op.isfile(toExclude):
+            nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
+            excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+            excluded = np.where(excluded==0)[0]
+            npts = excluded.size
+            if npts==1:
+                excluded=np.reshape(excluded,(npts,))
+            toReg = np.zeros((nTRs, npts),dtype=np.float32)
+            for i in range(npts):
+                toReg[excluded[i],i] = 1
+            X = np.concatenate((X, toReg), axis=1)
         
     return X
 
@@ -1449,14 +1472,17 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
             if gap > 1 and gap <= n_cont:
                 toAppend = np.union1d(toAppend,np.arange(censored[i]+1,censored[i+1]))
     censored = np.union1d(censored,toAppend)
+    toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+    if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+    if op.isfile(toExclude):
+        excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+        censored = np.union1d(censored,np.where(excluded==0)[0])
     censored.sort()
     censored = censored.astype(int)
     
     np.savetxt(op.join(outpath(), 'Censored_TimePoints.txt'), censored, delimiter='\n', fmt='%d')
     if len(censored)>0 and len(censored)<nTRs:
         config.doScrubbing = True
-    if len(censored) == nTRs:
-        print('Warning! All points selected for censoring: scrubbing will not be performed.')
 
     #even though these haven't changed, they are returned for consistency with other operations
     return niiImg[0],niiImg[1]
@@ -1639,6 +1665,13 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
     if config.doScrubbing and flavor[0] in ['Butter','Gaussian']:
         censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
         censored = np.atleast_1d(censored)
+        toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+        if op.isfile(toExclude):
+            excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+            censored = np.union1d(censored,np.where(excluded==0)[0])
+        censored.sort()
+        censored = censored.astype(int)
         if len(censored)<nTRs and len(censored) > 0:
             data = interpolate(niiImg[0],censored,TR,nTRs,method=config.interpolation)     
             if niiImg[1] is not None:
@@ -1648,11 +1681,23 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
             if niiImg[1] is not None:
                 data2 = niiImg[1]
     else:
+        toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+        if op.isfile(toExclude):
+            excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+            if len(excluded)<nTRs and len(excluded) > 0:
+                data = interpolate(niiImg[0],excluded,TR,nTRs,method=config.interpolation)     
+                if niiImg[1] is not None:
+                    data2 = interpolate(niiImg[1],excluded,TR,nTRs,method=config.interpolation)
+        else:
+            data = niiImg[0]
+            if niiImg[1] is not None:
+                data2 = niiImg[1]
+
+    if flavor[0] == 'Butter':
         data = niiImg[0]
         if niiImg[1] is not None:
             data2 = niiImg[1]
-
-    if flavor[0] == 'Butter':
         R = 0.1
         Nr = 50
         x = data.T
@@ -2321,8 +2366,23 @@ def computeFC(overwrite=False):
         if config.doScrubbing:
             censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
             censored = np.atleast_1d(censored)
+            toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+            if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+            if op.isfile(toExclude):
+                excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                censored = np.union1d(censored,np.where(excluded==0)[0])
+            censored.sort()
+            censored = censored.astype(int)
             tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
             ts = ts[tokeep,:]
+        else:
+            toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+            if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+            if op.isfile(toExclude):
+                excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                excluded = np.where(excluded==0)[0]
+                tokeep = np.setdiff1d(np.arange(ts.shape[0]),excluded)
+                ts = ts[tokeep,:]
         # correlation
         ts[np.isnan(ts)] = 0
         corrMat = np.squeeze(measure.fit_transform([ts]))
@@ -2385,8 +2445,23 @@ def compute_vFC(overwrite=False):
         if config.doScrubbing:
             censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
             censored = np.atleast_1d(censored)
+            toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+            if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+            if op.isfile(toExclude):
+                excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                censored = np.union1d(censored,np.where(excluded==0)[0])
+            censored.sort()
+            censored = censored.astype(int)
             tokeep = np.setdiff1d(np.arange(X.shape[1]),censored)
             X = X[:,tokeep]
+        else:
+            toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+            if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+            if op.isfile(toExclude):
+                excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                excluded = np.where(excluded==0)[0]
+                tokeep = np.setdiff1d(np.arange(X.shape[1]),excluded)
+                X = X[:,tokeep]
         # correlation
         corrMat = np.squeeze(measure.fit_transform([X.T]))
         # save as .mat
@@ -2452,9 +2527,25 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
             if config.doScrubbing:
                 censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
                 censored = np.atleast_1d(censored)
+                toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+                if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+                if op.isfile(toExclude):
+                    excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                    censored = np.union1d(censored,np.where(excluded==0)[0])
+                    censored.sort()
+                    censored = censored.astype(int)
                 tokeep = np.setdiff1d(np.arange(X.shape[1]),censored)
                 X = X[:,tokeep]
                 seedTS = seedTS[tokeep]
+            else:    
+                toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+                if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+                if op.isfile(toExclude):
+                    excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                    excluded = np.where(excluded==0)[0]
+                    tokeep = np.setdiff1d(np.arange(X.shape[1]),excluded)
+                    X = X[:,tokeep]
+                    seedTS = seedTS[tokeep]
             # correlation
             corrVec = np.zeros(X.shape[0])
             for i in range(len(corrVec)):
@@ -2478,9 +2569,24 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
             if config.doScrubbing:
                 censored = np.loadtxt(op.join(outpath(), 'Censored_TimePoints.txt'), dtype=np.dtype(np.int32))
                 censored = np.atleast_1d(censored)
+                toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+                if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+                if op.isfile(toExclude):
+                    excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                    censored = np.union1d(censored,np.where(excluded==0)[0])
+                    censored.sort()
+                    censored = censored.astype(int)
                 tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
                 ts = ts[tokeep,:]
                 seedTS = seedTS[tokeep]
+            else:
+                toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+                if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+                if op.isfile(toExclude):
+                    excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+                    tokeep = np.setdiff1d(np.arange(ts.shape[0]),excluded)
+                    ts = ts[tokeep,:]
+                    seedTS = seedTS[tokeep] 
             corrVec = np.zeros(ts.shape[1])
             for i in range(len(corrVec)):
                 corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, ts[:,i]]).T]))[0,1]
@@ -3063,6 +3169,14 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         sys.stdout.flush()
         return False
 
+    toExclude = config.excludeTimePoints.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+    if hasattr(config, 'session') and config.session: toExclude = toExclude.replace('#fMRIsession#', config.session)
+    if op.isfile(toExclude):
+        excluded = np.atleast_1d(np.loadtxt(toExclude,dtype=int))
+        if len(np.where(excluded==0)[0]) == len(excluded):
+            print(config.fmriFile, 'has no usable timepoints')
+            return False
+        
     config.sortedOperations = sorted(config.Operations, key=operator.itemgetter(1))
     config.steps            = {}
     config.Flavors          = {}
