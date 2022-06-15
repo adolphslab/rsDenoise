@@ -2547,9 +2547,7 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
                     X = X[:,tokeep]
                     seedTS = seedTS[tokeep]
             # correlation
-            corrVec = np.zeros(X.shape[0])
-            for i in range(len(corrVec)):
-                corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, X[i,:]]).T]))[0,1]
+            corrVec = measure.fit_transform([np.hstack([X.T,seedTS.reshape(-1,1)])])[0,:-1,-1]
         else: # compute seed to ROI FC
             print('Computing seed ROI to parcel FC')
             prefix = config.session+'_' if  hasattr(config,'session')  else ''
@@ -2587,9 +2585,8 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
                     tokeep = np.setdiff1d(np.arange(ts.shape[0]),excluded)
                     ts = ts[tokeep,:]
                     seedTS = seedTS[tokeep] 
-            corrVec = np.zeros(ts.shape[1])
-            for i in range(len(corrVec)):
-                corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, ts[:,i]]).T]))[0,1]
+            corrVec = measure.fit_transform([np.hstack([ts,seedTS.reshape(-1,1)])])[0,:-1,-1]
+
         # save as .txt
         np.savetxt(fcFile,corrVec,fmt='%.6f',delimiter=',')
 
