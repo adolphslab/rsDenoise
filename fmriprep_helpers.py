@@ -431,8 +431,8 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
                 config.subject+'_'+prefix+config.fmriRun+'_space-'+config.space+'_desc-aseg_dseg.nii.gz')
             ribbonFilein =  op.join(config.DATADIR, 'fmriprep', config.subject, config.session if  hasattr(config,'session')  else '', 'func',
                 config.subject+'_'+prefix+config.fmriRun+'_space-'+config.space+'_desc-aparcaseg_dseg.nii.gz')
-            ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
-            wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
+            ribbonFileout = op.join(outpath(), 'ribbon.nii.gz') # DORIT 5/22 
+            wmparcFileout = op.join(outpath(), 'wmparc.nii.gz') # DORIT 5/22
             # make identity matrix to feed to flirt for resampling
             ribbonMat = op.join(outpath(), 'ribbon_flirt.mat')
             wmparcMat = op.join(outpath(), 'wmparc_flirt.mat')
@@ -442,12 +442,12 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
 
             
             flirt_ribbon = fsl.FLIRT(in_file=ribbonFilein, out_file=ribbonFileout,
-                                    reference=fmriFile, apply_xfm=True,
+                                    reference=fmriFile, apply_xfm=True, output_type='NIFTI_GZ',
                                     in_matrix_file=eyeMat, out_matrix_file=ribbonMat, interp='nearestneighbour')
             flirt_ribbon.run()
 
             flirt_wmparc = fsl.FLIRT(in_file=wmparcFilein, out_file=wmparcFileout,
-                                    reference=fmriFile, apply_xfm=True,
+                                    reference=fmriFile, apply_xfm=True, output_type='NIFTI_GZ',
                                     in_matrix_file=eyeMat, out_matrix_file=wmparcMat, interp='nearestneighbour')
 
             flirt_wmparc.run()
@@ -824,26 +824,11 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
                 continue
             else:    
                 rcode = xfile.replace('.xml','')
-                tokens = op.basename(inFile).split('_')
-                subject = tokens[0]
-                if 'ses-' in inFile:
-                    prefix = tokens[1]+'_'
-                    fmriRun = tokens[2] + '_' + tokens[3] 
-                    space = tokens[4]
-                    if isGifti or isCifti:
-                        suffix = '_'+tokens[5].replace(ext,'')
-                    else:
-                        suffix = '_'+tokens[5].replace(ext,'') if 'res' in tokens[5] else ''
+                outFile = glob.glob(op.join(resDir, '*_prepro_'+rcode+ext))
+                if len(outFile)>0:
+                    return outFile[0]
                 else:
-                    prefix = ''
-                    fmriRun = tokens[1] + '_' + tokens[2] 
-                    space = tokens[3]
-                    if isGifti or isCifti:
-                        suffix = '_'+tokens[4].replace(ext,'')
-                    else:
-                        suffix = '_'+tokens[4].replace(ext,'') if 'res' in tokens[4] else ''
-                outFile = subject+'_'+prefix+fmriRun+'_'+space+suffix+'_prepro_'+rcode+ext
-                return op.join(resDir,outFile)
+                    return None
     return None
 	
 ## 
@@ -2048,7 +2033,7 @@ def parcellate(overwrite=False):
         for iParcel in np.arange(config.nParcels):
             tsFile = op.join(tsDir,'parcel{:03d}'.format(iParcel+1)+suffix+'.txt')
             if not op.isfile(tsFile) or overwrite:
-                np.savetxt(tsFile,np.nanmean(data[np.where(allparcels==iParcel+1)[0],:],axis=0),fmt='%.6f',delimiter='\n')
+                np.savetxt(tsFile,np.nanmean(data[np.where(allparcels==iParcel+1)[0],:],axis=0),delimiter='\n')
 
         # concatenate all ts
         cmd = 'paste '+op.join(tsDir,'parcel???'+suffix+'.txt')+' > '+alltsFile
@@ -2112,12 +2097,12 @@ def parcellate(overwrite=False):
         for iParcel in np.arange(config.nParcels):
             tsFile = op.join(tsDir,'parcel{:03d}'.format(iParcel+1)+suffix+'_{}.txt'.format(rstring))
             if not op.isfile(tsFile) or overwrite:
-                np.savetxt(tsFile,np.nanmean(data[np.where(allparcels==iParcel+1)[0],:],axis=0),fmt='%.6f',delimiter='\n')
+                np.savetxt(tsFile,np.nanmean(data[np.where(allparcels==iParcel+1)[0],:],axis=0),delimiter='\n')
             # save all voxels in mask, with header indicating parcel number
             if config.save_voxelwise:
                 tsFileAll = op.join(tsDir,'parcel{:03d}'.format(iParcel+1)+suffix+'_{}_all.txt'.format(rstring))
                 if not op.isfile(tsFileAll) or overwrite:
-                    np.savetxt(tsFileAll,np.transpose(data[np.where(allparcels==iParcel+1)[0],:]),fmt='%.6f',delimiter=',',newline='\n')
+                    np.savetxt(tsFileAll,np.transpose(data[np.where(allparcels==iParcel+1)[0],:]),delimiter=',',newline='\n')
         
         # concatenate all ts
         cmd = 'paste '+op.join(tsDir,'parcel???'+suffix+'_{}.txt'.format(rstring))+' > '+alltsFile
@@ -2299,7 +2284,7 @@ def computeFC(overwrite=False):
         # correlation
         corrMat = np.squeeze(measure.fit_transform([ts]))
         # save as .txt
-        np.savetxt(fcFile,corrMat,fmt='%.6f',delimiter=',')
+        np.savetxt(fcFile,corrMat,delimiter=',')
     ###################
     # denoised
     ###################
@@ -2339,9 +2324,9 @@ def computeFC(overwrite=False):
         # np.fill_diagonal(corrMat,1)
         # np.fill_diagonal(corrMat,1)
         # save as .txt
-        np.savetxt(fcFile,corrMat,fmt='%.6f',delimiter=',')
+        np.savetxt(fcFile,corrMat,delimiter=',')
         if FCDir:
-            np.savetxt(op.join(FCDir,config.subject+'_'+prefix+config.fmriRun+'_ts.txt'),ts,fmt='%.6f',delimiter=',')
+            np.savetxt(op.join(FCDir,config.subject+'_'+prefix+config.fmriRun+'_ts.txt'),ts,delimiter=',')
 		
 ## 
 #  @brief Compute voxel/vertex-wise functional connectivity matrix (output saved to file)
@@ -2398,6 +2383,7 @@ def compute_vFC(overwrite=False):
             tokeep = np.setdiff1d(np.arange(X.shape[1]),censored)
             X = X[:,tokeep]
         # correlation
+        np.nan_to_num(X,copy=False)
         corrMat = np.squeeze(measure.fit_transform([X.T]))
         # save as .mat
         results = {'corrMat':corrMat}
@@ -2466,9 +2452,9 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
                 X = X[:,tokeep]
                 seedTS = seedTS[tokeep]
             # correlation
-            corrVec = np.zeros(X.shape[0])
-            for i in range(len(corrVec)):
-                corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, X[i,:]]).T]))[0,1]
+            np.nan_to_num(X,copy=False)
+            np.nan_to_num(seedTS,copy=False)
+            corrVec = measure.fit_transform([np.hstack([X.T,seedTS.reshape(-1,1)])])[0,:-1,-1]
         else: # compute seed to ROI FC
             print('Computing seed ROI to parcel FC')
             prefix = config.session+'_' if  hasattr(config,'session')  else ''
@@ -2491,11 +2477,13 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
                 tokeep = np.setdiff1d(np.arange(ts.shape[0]),censored)
                 ts = ts[tokeep,:]
                 seedTS = seedTS[tokeep]
-            corrVec = np.zeros(ts.shape[1])
-            for i in range(len(corrVec)):
-                corrVec[i] = np.squeeze(measure.fit_transform([np.vstack([seedTS, ts[:,i]]).T]))[0,1]
+            np.nan_to_num(ts,copy=False)
+            np.nan_to_num(seedTS,copy=False)
+            corrVec = measure.fit_transform([np.hstack([ts,seedTS.reshape(-1,1)])])[0,:-1,-1]
         # save as .txt
-        np.savetxt(fcFile,corrVec,fmt='%.6f',delimiter=',')
+        np.savetxt(fcFile,corrVec,delimiter=',')
+        print("Saving timeseries for seed",seedName)
+        np.savetxt(op.join(FCDir,'{}_seed_{}_{}_ts.txt'.format(fileName,seedName,rstring)),seedTS,delimiter='\n')
 
 ## 
 #  @brief Compute functional connectivity matrices before and after preprocessing and generate FC plot
@@ -3004,7 +2992,7 @@ def runPipeline():
     outFile = config.subject+'_'+prefix+config.fmriRun+'_space-'+space+'_prepro_'+rstring
     if config.isCifti:
         # write to text file
-        np.savetxt(op.join(outDir,outFile+'.tsv'),data, delimiter='\t', fmt='%.6f')
+        np.savetxt(op.join(outDir,outFile+'.tsv'),data, delimiter='\t')
         # need to convert back to cifti
         cmd = 'wb_command -cifti-convert -from-text {} {} {}'.format(op.join(outDir,outFile+'.tsv'),
                                                                      config.fmriFile,
