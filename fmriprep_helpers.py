@@ -171,7 +171,7 @@ config.operationDict = {
         ['GlobalSignalRegression',  3, ['GS']],
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]],
         ['Scrubbing',               5, ['FD', 0.25]]
-        ], # smoothing
+        ], # smoothing   
     'MyC_A_scrub': [
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 1, 'wholebrain']],
