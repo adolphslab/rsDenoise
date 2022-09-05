@@ -1941,7 +1941,7 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
                 x1[:,i] = 2*x[0,i] - np.flipud(x[1:NR+1,i])
                 x2[:,i] = 2*x[-1,i] - np.flipud(x[-NR-1:-1,i])
             x = np.vstack([x1,x,x2])
-            x = clean(data2.T, detrend=False, standardize=False, 
+            x = clean(x.T, detrend=False, standardize=False, 
                t_r=TR, high_pass=flavor[1], low_pass=flavor[2])
             niiImg[1] = x[NR:-NR,:].T
     elif flavor[0] == 'Gaussian':
