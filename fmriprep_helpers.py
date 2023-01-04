@@ -154,6 +154,15 @@ config.operationDict = {
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]],
         ['Scrubbing',               5, ['FD', 0.25]]
         ],
+    'MyC_A_filt': [
+        ['VoxelNormalization',      1, ['demean']],
+        ['Detrending',              2, ['poly', 1, 'wholebrain']],
+        ['TissueRegression',        3, ['WMCSF', 'wholebrain']],
+        ['MotionRegression',        3, ['R R^2 R-1 R-1^2']],
+        ['GlobalSignalRegression',  3, ['GS']],
+        ['TemporalFiltering',       4, ['Gaussian',1]],
+        ['Scrubbing',               5, ['FD', 0.25]]
+        ],
      'MyC_A_motion': [
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 1, 'wholebrain']],
@@ -180,7 +189,23 @@ config.operationDict = {
         ['GlobalSignalRegression',  3, ['GS']],
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]]
         ], 
-     'NSF': [ # preregistered
+    'MyC_A_m_scr_sm_filt': [
+        ['VoxelNormalization',      1, ['demean']],
+        ['Detrending',              2, ['poly', 1, 'wholebrain']],
+        ['TissueRegression',        3, ['WMCSF', 'wholebrain']],
+        ['MotionRegression',        3, ['R dR']],
+        ['GlobalSignalRegression',  3, ['GS']],
+        ['TemporalFiltering',       4, ['Gaussian', 1]],
+        ],#smoothing in rsDenoise.py
+    'A_onereg': [ #Finn et al. 2015
+        ['VoxelNormalization',      1, ['zscore']],
+        ['Detrending',              2, ['legendre', 3, 'wholebrain']],
+        ['TissueRegression',        3, ['WMCSF', 'GM']],
+        ['MotionRegression',        3, ['R dR']],
+        ['TemporalFiltering',       4, ['Gaussian', 1]],
+        ['GlobalSignalRegression',  3, ['GS']]
+        ],
+    'NSF': [ # preregistered
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 2, 'wholebrain']],
         ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
