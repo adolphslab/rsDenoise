@@ -118,7 +118,7 @@ def get_confounds():
     if hasattr(config, 'session') and config.session:
         confoundsFile = glob.glob(op.join(config.DATADIR, config.subject, config.session,'func', 
 		config.subject+'_'+config.session+'_'+config.fmriRun+'*_desc-confounds_timeseries.tsv'))
-        if len(counfoundsFile) < 1: # try older fmriprep file name
+        if len(confoundsFile) < 1: # try older fmriprep file name
             confoundsFile =  glob.glob(op.join(config.DATADIR, config.subject, config.session,'func', 
 	       	    config.subject+'_'+config.session+'_'+config.fmriRun+'*_desc-confounds_regressors.tsv'))
             if len(confoundsFile) > 0:
@@ -2689,7 +2689,7 @@ def plotFC(displayPlot=False,overwrite=False,seed=None,vFC=False):
 #  @brief Generate confound vector according to code word
 #  
 #  @param  [pandas.DataFrame] df data dictionary
-#  @param  [int] confound code word identifying list of counfounds (one of 'gender', 'age', 'handedness', 'age^2', 'gender*age', 'gender*age^2', 'brainsize', 'motion', 'recon')
+#  @param  [int] confound code word identifying list of confounds (one of 'gender', 'age', 'handedness', 'age^2', 'gender*age', 'gender*age^2', 'brainsize', 'motion', 'recon')
 #  @param  [int] session session identifier (one of 'REST1', 'REST2', 'REST12')
 #  @return [array_like] vector of confounds
 #  
@@ -2736,7 +2736,7 @@ def defConVec(df,confound,session):
 #  
 #  @details The edges of FC matrix are used to build a linear regression model to predict the subject measure. Finn model uses a first degree 
 #  polynomial to fit the subject measure as a function of the sum of edge weights. Elastic net builds a multivariate model using the edges of 
-#  the FC matrix as features. In both models, only edges correlated with the subject measure on training data are selected, and counfounds are
+#  the FC matrix as features. In both models, only edges correlated with the subject measure on training data are selected, and confounds are
 #  regressed out from the subject measure. If requested, a permutation test is also run.
 #  
 def runPredictionJD(fcMatFile, dataFile, test_index, filterThr=0.01, keepEdgeFile='', iPerm=[0], SM='PMAT24_A_CR', session='REST12', decon='decon', fctype='Pearson', model='Finn',outDir='',confounds=['gender','age','age^2','gender*age','gender*age^2','brainsize','motion','recon']):
