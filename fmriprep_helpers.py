@@ -3013,7 +3013,8 @@ def runPipeline():
     if config.isCifti:
         # volume
         prefix = '_'+config.session if  hasattr(config,'session')  else ''
-        volFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+        volFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'*_space-'+config.space+'_desc-preproc_bold.nii.gz'))
+        volFile = volFile[0]
         print('Loading [volume] data in memory... {}'.format(volFile))
         volData, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll) 
         # cifti
