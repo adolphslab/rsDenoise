@@ -418,7 +418,12 @@ def load_img(volFile,maskAll=None,unzip=config.useMemMap):
 def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
     if config.isCifti or config.isGifti:
         prefix = '_'+config.session if  hasattr(config,'session')  else '' 
-        fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+        fmriFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'*_space-'+config.space+'_desc-preproc_bold.nii.gz'))
+        if len(fmriFile) > 0:
+            fmriFile = fmriFile[0]
+        else:
+               print('Error! Volume file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+
     else:
         fmriFile = config.fmriFile
     WMmaskFileout = op.join(outpath(),'WMmask.nii')
@@ -435,7 +440,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
                wmparcFilein = wmFiles[0]
                ribbonFilein = wmparcFilein.replace('aseg_dseg','aparcaseg_dseg')
             else: # files not found
-               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
                return None
             ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
             wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
@@ -530,7 +535,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
                         gmFilein = wmFilein.replace('WM','GM')
                         csfFilein = wmFilein.replace('WM','CSF')
                     else: # files not found
-                        print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz')) 
+                        print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'anat',config.subject+prefix+'*_space-'+template+'_label-WM_probseg.nii.gz')) 
                         return None
 
             # load nii 
