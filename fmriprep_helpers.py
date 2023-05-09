@@ -116,17 +116,29 @@ def get_confounds():
     if hasattr(config, 'confounds') and not (config.confounds is None):
         return config.confounds
     if hasattr(config, 'session') and config.session:
-        confoundsFile =  op.join(config.DATADIR, config.subject, config.session,'func', 
-		config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
-        if not op.isfile(confoundsFile): # try older fmriprep file name
-            confoundsFile =  op.join(config.DATADIR, config.subject, config.session,'func', 
-	       	    config.subject+'_'+config.session+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
+        confoundsFile = glob.glob(op.join(config.DATADIR, config.subject, config.session,'func', 
+		config.subject+'_'+config.session+'_'+config.fmriRun+'*_desc-confounds_timeseries.tsv'))
+        if len(counfoundsFile) < 1: # try older fmriprep file name
+            confoundsFile =  glob.glob(op.join(config.DATADIR, config.subject, config.session,'func', 
+	       	    config.subject+'_'+config.session+'_'+config.fmriRun+'*_desc-confounds_regressors.tsv'))
+            if len(confoundsFile) > 0:
+                confoundsFile = confoundsFile[0]
+            else:
+                print('Error! Confounds file not found.')
+        else:
+            confoundsFile = confoundsFile[0]
     else:
-        confoundsFile =  op.join(config.DATADIR, config.subject, 'func', 
-		config.subject+'_'+config.fmriRun+'_desc-confounds_timeseries.tsv')
-        if not op.isfile(confoundsFile): # try older fmriprep file name
-            confoundsFile =  op.join(config.DATADIR, config.subject, 'func', 
-		    config.subject+'_'+config.fmriRun+'_desc-confounds_regressors.tsv')
+        confoundsFile =  glob.glob(op.join(config.DATADIR, config.subject, 'func', 
+		config.subject+'_'+config.fmriRun+'*_desc-confounds_timeseries.tsv'))
+        if len(confoundsFile) < 1: # try older fmriprep file name
+            confoundsFile =  glob.glob(op.join(config.DATADIR, config.subject, 'func', 
+		    config.subject+'_'+config.fmriRun+'*_desc-confounds_regressors.tsv'))
+            if len(confoundsFile) > 0:
+                confoundsFile = confoundsFile[0]
+            else:
+                print('Error! Confounds file not found.')
+        else:
+            confoundsFile = confoundsFile[0]
     data = pd.read_csv(confoundsFile, delimiter='\t')
     data.replace('n/a', 0, inplace=True)
     config.confounds = data
