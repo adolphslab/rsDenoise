@@ -17,6 +17,11 @@ The IPython notebooks provide a few examples of use (more can be found here: [HC
 A minimal script to launch the pipeline is provided in `runPipeline_example.py`. A command line wrapper is provided in `rsDenoise.py`.
 Example output for a HCP subject [here](https://caltech.box.com/s/t7zaw05wcnudl7b2jvn69wa2fvzlcc4j "outputs,preGLM0 pipeline").
 
+## References
+- Dubois J, Galdi P, Han Y, Paul LK, Adolphs R. Resting-state functional brain connectivity best predicts the personality dimension of openness to experience. Personality neuroscience. 2018 Jul;1:e6.
+- Dubois J, Galdi P, Paul LK, Adolphs R. A distributed brain network predicts general intelligence from resting-state human neuroimaging data. Philosophical Transactions of the Royal Society B: Biological Sciences. 2018 Sep 26;373(1756):20170284.
+- Kliemann D, Adolphs R, Armstrong T, Galdi P, Kahn DA, Rusch T, Enkavi AZ, Liang D, Lograsso S, Zhu W, Yu R. Caltech Conte Center, a multimodal data resource for exploring social cognition and decision-making. Scientific Data. 2022 Mar 31;9(1):138.
+
 ## Overview
 
 ### Prerequisites
