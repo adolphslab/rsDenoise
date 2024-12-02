@@ -51,7 +51,7 @@ def main():
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
-                for config.fmriRun in fmriRuns:
+                for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                   for seedFile in seeds:
@@ -63,7 +63,7 @@ def main():
                     runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
                 seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                 for seedFile in seeds:
@@ -77,7 +77,7 @@ def main():
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
-                for config.fmriRun in fmriRuns:
+                for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                   for seedFile in seeds:
@@ -110,7 +110,7 @@ def main():
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                 for seedFile in seeds:
@@ -122,7 +122,7 @@ def main():
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
-            for config.fmriRun in fmriRuns:
+            for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
               for seedFile in seeds:
@@ -139,7 +139,7 @@ def main():
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                 for seedFile in seeds:
@@ -147,7 +147,7 @@ def main():
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=True)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
-            for config.fmriRun in fmriRuns:
+            for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
               for seedFile in seeds:
@@ -169,12 +169,12 @@ def main():
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
-                for config.fmriRun in fmriRuns:
+                for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
             else:
               if hasattr(config,'session'): delattr(config,'session')
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
                 runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
             iSurf = iSurf + 1
@@ -185,7 +185,7 @@ def main():
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
               for config.session in sessions:
-                for config.fmriRun in fmriRuns:
+                for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   if vFC:
                     runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
@@ -193,7 +193,7 @@ def main():
                     runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
                 if vFC:
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
@@ -212,12 +212,12 @@ def main():
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
-            for config.fmriRun in fmriRuns:
+            for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)    
       else: # no parcellation file provided
@@ -225,7 +225,7 @@ def main():
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
           if len(sessions) > 0:
             for config.session in sessions:
-              for config.fmriRun in fmriRuns:
+              for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 if vFC:
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
@@ -233,7 +233,7 @@ def main():
                   runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
-            for config.fmriRun in fmriRuns:
+            for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               if vFC:
                 runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
@@ -252,7 +252,7 @@ def create_parser():
               default='MNI152NLin6Asym_res-2', help="""Space for volumetric data or volumetric seed.""")
   parser.add_argument('-surf', '--surface', metavar='SURFACE', type=str, nargs='+',
             default=['fsaverage6_hemi-L','fsaverage6_hemi-R'], help="""Space for surface data. More than one space can be specified.""")
-  parser.add_argument('-runs', '--fmriRuns', metavar='RUN_NAMES', type=str, nargs='+',
+  parser.add_argument('-runs', '--fmriRuns', metavar='RUN_NAME', type=str, nargs='+',
             default=['task-rest_run-1','task-rest_run-2'], help="""Name of fMRI runs to be processed. More than one run can be specified.""")
   parser.add_argument('-parcelName', '--parcellationName', metavar='PARCELLATION_NAME', type=str,
             default=None, help="""Parcellation name, used in output file names. Only required for parcel-wise FC. 
