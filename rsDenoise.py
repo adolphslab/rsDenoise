@@ -1,28 +1,24 @@
 import sys, argparse
-sys.path.append('/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise')
-from fmriprep_helpers import *
 
 ### Set parameters #################################################
-# config is a global variable used by several functions
+PATH_TO_RSDENOISE = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise'
+sys.path.append(PATH_TO_RSDENOISE)
+from fmriprep_helpers import *
 
-# Where does the data live?
-config.DATADIR = '/projects/MINDLAB2016_MR-SensCogFromNeural/scratch/rsDenoise/derivatives/'
-config.sourceDir = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise' # or replace with path to source code
+# config is a global variable used by several functions
+config.sourceDir = PATH_TO_RSDENOISE
 
 # Processing options
-config.preprocessing = 'freesurfer' 
+config.preprocessing = 'freesurfer' # change to 'fmriprep' if freesurfer outputs are not available
 config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
 
 # Other options
-config.queue = True
+config.queue = False # set to True to use sge qsub
 config.sgeopts  = '-pe threaded 2-2 -q highmem_short.q -l h_vmem=16G -v OMP_NUM_THREADS=$NSLOTS'
 config.overwrite = False
 
-# interpolate over non-contiguous voxels
-config.n_contiguous = 1 # 1 does not interpolate over timepoint e.g 5 
-
-# Define fMRI runs
-fmriRuns = ['task-rest_run-1','task-rest_run-2']
+# interpolate over non-contiguous voxels (e.g. 5) 
+config.n_contiguous = 1 # 1 does not interpolate over timepoint 
 
 #####################################################################
 
@@ -256,6 +252,8 @@ def create_parser():
               default='MNI152NLin6Asym_res-2', help="""Space for volumetric data or volumetric seed.""")
   parser.add_argument('-surf', '--surface', metavar='SURFACE', type=str, nargs='+',
             default=['fsaverage6_hemi-L','fsaverage6_hemi-R'], help="""Space for surface data. More than one space can be specified.""")
+  parser.add_argument('-runs', '--fmriRuns', metavar='RUN_NAMES', type=str, nargs='+',
+            default=['task-rest_run-1','task-rest_run-2'], help="""Name of fMRI runs to be processed. More than one run can be specified.""")
   parser.add_argument('-parcelName', '--parcellationName', metavar='PARCELLATION_NAME', type=str,
             default=None, help="""Parcellation name, used in output file names. Only required for parcel-wise FC. 
             To be specified together with -parcelFile and -parcelName""")
