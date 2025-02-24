@@ -524,6 +524,9 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
 
         else: # only fmriprep
             session = config.session if hasattr(config,'session') else ''
+            # check if there is only one anat folder or one per session
+            if not op.isdir(op.join(config.DATADIR, session, 'anat')):
+                session = ''
             prefix = '_'+config.session if hasattr(config,'session') else ''
             if config.space == 'T1w':
                 wmFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
