@@ -1,4 +1,3 @@
-#from __future__ import division
 #----------------------------------
 # initialize global variable config
 #----------------------------------
@@ -82,9 +81,8 @@ import seaborn as sns
 #from astropy.timeseries import LombScargle
 
 #----------------------------------
-# function to build dinamycally path to input fMRI file
+# function to dinamycally build path to input fMRI file
 #----------------------------------
-#sub-100307_task-REST_acq-RL_run-01_space-MNI152NLin6Asym_res-2_desc-preproc_bold.nii.gz
 def buildpath():
     if hasattr(config, 'session') and config.session:
         return op.join(config.DATADIR, config.subject, config.session, 'func')
@@ -167,7 +165,7 @@ config.operationDict = {
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]],
         ['Scrubbing',               5, ['FD', 0.25]]
         ],
-     'NSF': [ # preregistered
+     'NSF': [ 
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 2, 'wholebrain']],
         ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
@@ -176,7 +174,7 @@ config.operationDict = {
         ['TemporalFiltering',       3, ['DCT', 0.008]],
         ['Scrubbing',               5, ['FDmultiband', 0.25]]
         ],
-     'NSF_FD': [ # preregistered
+     'NSF_FD': [ 
         ['VoxelNormalization',      1, ['demean']],
         ['Detrending',              2, ['poly', 2, 'wholebrain']],
         ['TissueRegression',        3, ['CompCor', 5, 'WMCSF', 'wholebrain']],
@@ -258,25 +256,6 @@ config.operationDict = {
         ['Scrubbing',               3, ['FD+DVARS', 0.25, 5]], 
         ['TemporalFiltering',       4, ['Butter', 0.009, 0.08]]
         ],
-    'B0': [ # same as B, with very small change to force recomputation after bug discovered in polynomial filtering 2/12/2018
-        ['VoxelNormalization',      1, ['demean']],
-        ['Detrending',              2, ['poly', 2, 'wholebrain']],
-        ['TemporalFiltering',       3, ['Butter', 0.01, 0.0801]], 
-        ['MotionRegression',        4, ['R dR R^2 dR^2']],
-        ['TissueRegression',        4, ['WMCSF+dt+sq', 'wholebrain']],
-        ['GlobalSignalRegression',  4, ['GS+dt+sq']],
-        ['Scrubbing',               4, ['RMS', 0.25]]
-        ],
-    'C0': [ # same as C, with very small change to force recomputation after bug discovered in polynomial filtering 2/12/2018
-        ['VoxelNormalization',      1, ['demean']],
-        ['Detrending',              2, ['poly', 1, 'wholebrain']],
-        ['TissueRegression',        3, ['CompCor', 5, 'fmriprep', 'wholebrain']],
-        ['TissueRegression',        3, ['GM', 'wholebrain']], 
-        ['GlobalSignalRegression',  3, ['GS']],
-        ['MotionRegression',        3, ['censoring']],
-        ['Scrubbing',               3, ['FD+DVARS', 0.25, 5]], 
-        ['TemporalFiltering',       4, ['Butter', 0.009, 0.0801]]
-        ],
     'test_fmriprep': [ 
         ['VoxelNormalization',      1, ['demean']],
         ['VoxelNormalization',      1, ['zscore']],
@@ -300,9 +279,6 @@ config.operationDict = {
 
 #----------------------------------
 # HELPER FUNCTIONS
-# several of these functions may not be used 
-# for the specific analyses conducted 
-# in intelligence.ipynb and personality.ipynb
 #----------------------------------
 
 ## 
@@ -603,6 +579,148 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
 
     return maskAll, maskWM_, maskCSF_, maskGM_
 
+def saveNiftiFile(mask, refFileout, maskFileout):
+    ref = nib.load(refFileout)
+    img = nib.Nifti1Image(mask.reshape(ref.shape).astype('<f4'), ref.affine)
+    nib.save(img, maskFileout)
+
+def loadMask(maskFileout):
+    tmp = nib.load(maskFileout)
+    nRows, nCols, nSlices = tmp.header.get_data_shape()
+    mask = np.asarray(tmp.dataobj).reshape(nRows * nCols * nSlices, order='F') > 0
+    return mask
+
+def makeWMMask(overwrite=False, maskThreshold=0.33):
+    if config.WM:
+        WMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: WMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+    else:
+        WMmaskFileout = op.join(outpath(), 'WMmask.nii')
+        if not op.isfile(WMmaskFileout) or overwrite:
+            if config.preprocessing == 'freesurfer': 
+                ribbonFile, wmparcFile = prepareFreesurferFiles()
+                wmparc = np.asarray(nib.load(wmparcFile).dataobj)
+                ribbon = np.aearray(nib.load(ribbonFile).dataobj)
+                WMmask = createFreesurferWMMask(ribbon, wmparc)
+                saveNiftiFile(WMmask, wmparcFileout, WMmaskFileout)
+                cleanUpTemporaryFiles([eyeMat, wmparcMat])
+            else:
+                wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
+                fmriFile = getFmriFile()
+                WMmask = createFmriprepMask(wmFilein, fmriFile, maskThreshold)
+                saveNiftiFile(WMmask, fmriFile, WMmaskFileout)
+    return loadMask(WMmaskFileout)
+
+def makeCSFMask(overwrite=False, maskThreshold=0.33):
+    if config.CSF:
+        CSFmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: CSFmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+    else:
+        CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
+        if not op.isfile(CSFmaskFileout) or overwrite:
+            if config.preprocessing == 'freesurfer': 
+                ribbonFile, wmparcFile = prepareFreesurferFiles()
+                wmparc = np.asarray(nib.load(wmparcFile).dataobj)
+                CSFmask = createFreesurferCSFMask(wmparc)
+                saveNiftiFile(CSFmask, wmparcFileout, CSFmaskFileout)
+                cleanUpTemporaryFiles([eyeMat, wmparcMat])
+            else:
+                wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
+                fmriFile = getFmriFile()
+                CSFmask = createFmriprepMask(csfFilein, fmriFile, maskThreshold)
+                saveNiftiFile(CSFmask, fmriFile, CSFmaskFileout)
+    return loadMask(CSFmaskFileout)
+
+def makeGMMask(overwrite=False, maskThreshold=0.33):
+    if config.GM:
+        GMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: GMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+    else:    
+        GMmaskFileout = op.join(outpath(), 'GMmask.nii')
+        if not op.isfile(GMmaskFileout) or overwrite:
+            if config.preprocessing == 'freesurfer': 
+                ribbonFile, wmparcFile = prepareFreesurferFiles()
+                wmparc = np.asarray(nib.load(wmparcFile).dataobj)
+                ribbon = np.aearray(nib.load(ribbonFile).dataobj)
+                GMmask = createFreesurferGMMask(ribbon, wmparc)
+                saveNiftiFile(GMmask, wmparcFileout, GMmaskFileout)
+                cleanUpTemporaryFiles([eyeMat, wmparcMat])
+            else:
+                wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
+                fmriFile = getFmriFile()
+                GMmask = createFmriprepMask(gmFilein, fmriFile, maskThreshold)
+                saveNiftiFile(GMmask, fmriFile, GMmaskFileout)
+    return loadMask(GMmaskFileout)
+
+def makeWholeBrainMask():
+    if config.mask:
+        maskFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: maskFile = maskFile.replace('#fMRIsession#', config.session)
+        maskAll = loadMask(maskFile)
+    else:
+        maskWM = makeWMMask()
+        maskCSF = makeCSFMask()
+        maskGM = makeGMMask()
+        maskAll = np.logical_or(np.logical_or(maskWM, maskCSF), maskGM)
+    return maskAll
+
+def prepareFreesurferFiles():
+    session = config.session if hasattr(config, 'session') else ''
+    prefix = config.session + '_' if hasattr(config, 'session') else ''
+    template = config.space
+    fmriFile = getFmriFile()
+    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-aseg_dseg.nii.gz'))
+    wmparcFilein = wmFiles[0] if len(wmFiles) > 0 else None
+    ribbonFilein = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFilein else None
+    return ribbonFile, wmparcFile
+
+def prepareFmriprepFiles():
+    session = config.session if hasattr(config, 'session') else ''
+    # check if the session anat folder has the mask files, otherwise look in the anat folder in op.join(config.DATADIR, config.subject)
+    if len(glob.glob(op.join(config.DATADIR, session, 'anat', '*probseg.nii.gz'))) == 0:
+        session = ''
+    prefix = '_' + config.session if hasattr(config, 'session') else ''
+    template = config.space
+    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'anat', config.subject + prefix + '*_space-' + template + '_label-WM_probseg.nii.gz'))
+    wmFilein = wmFiles[0] if len(wmFiles) > 0 else None
+    gmFilein = wmFilein.replace('WM', 'GM') if wmFilein else None
+    csfFilein = wmFilein.replace('WM', 'CSF') if wmFilein else None
+    return wmFilein, gmFilein, csfFilein
+
+def getFmriFile():
+    prefix = '_' + config.session if hasattr(config, 'session') else ''
+    fmriFile = glob.glob(op.join(buildpath(), config.subject + prefix + '_' + config.fmriRun + '*_space-' + config.space + '_desc-preproc_bold.nii.gz'))
+    return fmriFile[0] if len(fmriFile) > 0 else None
+
+def createFreesurferWMMask(ribbon, wmparc):
+    ribbonWMstructures = [2, 41]
+    wmparcWMstructures = [7, 16, 46]
+    wmparcCCstructures = [250, 251, 252, 253, 254, 255]
+    wmparcCSFstructures = [4, 5, 14, 15, 24, 31, 43, 44, 63]
+    wmparcGMstructures = [3, 42, 8, 47, 10, 11, 12, 13, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60]
+    WMmask = np.double(np.logical_and(np.logical_and(np.logical_or(np.logical_or(np.in1d(ribbon, ribbonWMstructures), np.in1d(wmparc, wmparcWMstructures)), np.in1d(wmparc, wmparcCCstructures)), np.logical_not(np.in1d(wmparc, wmparcCSFstructures))), np.logical_not(np.in1d(wmparc, wmparcGMstructures))))
+    return WMmask
+
+def createFreesurferCSFMask(wmparc):
+    wmparcCSFstructures = [4, 5, 14, 15, 24, 31, 43, 44, 63]
+    CSFmask = np.double(np.in1d(wmparc, wmparcCSFstructures))
+    return CSFmask
+
+def createFreesurferGMMask(ribbon, wmparc):
+    ribbonGMstrucures = np.concatenate([np.arange(1006, 1036), np.arange(2000, 2036)])
+    wmparcGMstructures = [3, 42, 8, 47, 10, 11, 12, 13, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60]
+    GMmask = np.double(np.logical_or(np.in1d(ribbon, ribbonGMstrucures), np.in1d(wmparc, wmparcGMstructures)))
+    return GMmask
+
+def createFmriprepMask(filein, fmriFile, maskThreshold):
+    ref = nib.load(filein)
+    nii = np.asarray(nib.load(filein).dataobj)
+    nii = np.double(nii > maskThreshold)
+    nii = nib.Nifti1Image(nii.reshape(ref.shape).astype('<f4'), ref.affine)
+    ref = nib.load(fmriFile)
+    mask = image.resample_to_img(nii, ref, interpolation='nearest')
+    mask = np.asarray(mask.dataobj)
+    return mask
 
 def extract_noise_components(niiImg=None, WMmask=None, CSFmask=None, num_components=6, flavor=None):
     """

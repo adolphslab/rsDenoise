@@ -278,6 +278,16 @@ def create_parser():
           default=None, help="""Path to user-specified whole brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")           
   parser.add_argument('-GM', '--maskGM', metavar='MASK_FILE', type=float,
           default=None, help="""Path to user-specified gray matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-WM', '--maskWM', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified white matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""") 
+  parser.add_argument('-CSF', '--maskCSF', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified CSF brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-ribbon', '--ribbonMask', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified ribbon brain mask. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+          If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-wmparc', '--wmparc', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified wmparc file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+          If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
   requiredNamed = parser.add_argument_group('required named arguments')
   requiredNamed.add_argument('-data', '--datadir', metavar='FOLDER', type=str,
                  help="""Folder where subject data is be stored.""", required=True)
