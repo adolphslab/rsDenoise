@@ -56,7 +56,6 @@ import scipy.io as sio
 from scipy.spatial.distance import pdist, squareform
 from scipy.ndimage.morphology import binary_closing, binary_dilation, binary_erosion, binary_opening, generate_binary_structure
 from scipy.ndimage.filters import gaussian_filter1d
-import nipype.interfaces.fsl as fsl
 from subprocess import call, check_output, CalledProcessError, Popen
 import nibabel as nib
 import sklearn.model_selection as cross_validation
@@ -414,6 +413,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
 
     else:
         fmriFile = config.fmriFile
+    print(config.fmriFile, op.isfile(config.fmriFile))
     WMmaskFileout = op.join(outpath(),'WMmask.nii')
     CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
     GMmaskFileout = op.join(outpath(), 'GMmask.nii')
@@ -421,14 +421,14 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
     if not op.isfile(GMmaskFileout) or overwrite:
         if config.preprocessing == 'freesurfer': # output of fmriprep + freesurfer
             session = config.session if hasattr(config,'session') else ''
-            prefix = config.session+'_' if  hasattr(config,'session')  else ''
+            prefix = config.session+'_' if hasattr(config,'session')  else ''
             template = config.space
             wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'*_desc-aseg_dseg.nii.gz'))
             if len(wmFiles) > 0: 
                wmparcFilein = wmFiles[0]
                ribbonFilein = wmparcFilein.replace('aseg_dseg','aparcaseg_dseg')
             else: # files not found
-               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, prefix, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
                return None
             ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
             wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
@@ -1322,7 +1322,7 @@ def dctmtx(N):
 # Pipeline Operations
 # ---------------------
 
-def MotionRegression(niiImg, flavor, masks, imgInfo):
+def MotionRegression(niiImg, flavor, maskAll, imgInfo):
     data = get_confounds()
     if flavor[0] == 'R':
         X = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
@@ -1425,7 +1425,7 @@ def MotionRegression(niiImg, flavor, masks, imgInfo):
         
     return X
 
-def Scrubbing(niiImg, flavor, masks, imgInfo):
+def Scrubbing(niiImg, flavor, maskAll, imgInfo):
     """
     Largely based on: 
     - https://git.becs.aalto.fi/bml/bramila/blob/master/bramila_dvars.m
@@ -1631,8 +1631,8 @@ def Scrubbing(niiImg, flavor, masks, imgInfo):
     #even though these haven't changed, they are returned for consistency with other operations
     return niiImg[0],niiImg[1]
 
-def TissueRegression(niiImg, flavor, masks, imgInfo):
-    maskAll, maskWM_, maskCSF_, maskGM_ = masks
+def TissueRegression(niiImg, flavor, maskAll, imgInfo):
+    #maskAll, maskWM_, maskCSF_, maskGM_ = masks
     nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
     data = get_confounds()    
     if config.isCifti:
@@ -1647,6 +1647,9 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         if flavor[2] == 'fmriprep': # use fmriprep output
             X = extract_noise_components(num_components=flavor[1])
         else:
+            maskAll = makeWholeBrainMask()
+            maskWM_ = makeWMMask()[maskAll]
+            maskCSF_ = makeCSFMask()[maskAll]
             X = extract_noise_components(volData, maskWM_, maskCSF_, num_components=flavor[1], flavor=flavor[2])
     elif flavor[0] == 'WMCSF':
         meanWM = np.array(data.loc[:,'white_matter'])
@@ -1692,6 +1695,7 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         if config.isCifti or config.isGifti:
             meanGM = np.mean(np.float32(niiImg[0]),axis=0)
         else:
+            maskGM_ = makeGMMask()[maskAll]
             meanGM = np.mean(np.float32(volData[maskGM_,:]),axis=0)
         meanGM = meanGM - np.mean(meanGM)
         meanGM = meanGM/max(meanGM)
@@ -1710,6 +1714,7 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         elif config.isGifti:
             niiImgGM = niiImg[0]
         else:
+            maskGM_ = makeGMMask()[maskAll]
             niiImgGM = volData[maskGM_,:]
         niiImgGM = regress(niiImgGM, nTRs, TR, X, config.preWhitening)
         if config.isCifti:
@@ -1717,6 +1722,7 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
         elif config.isGifti:
             niiImg[0] = niiImgGM
         else:
+            maskGM_ = makeGMMask()[maskAll]
             volData[maskGM_,:] = niiImgGM
             niiImg[0] = volData    
         return niiImg[0], niiImg[1]
@@ -1726,8 +1732,8 @@ def TissueRegression(niiImg, flavor, masks, imgInfo):
     else:
         print("Warning! Last option of TissueRegression should be either 'GM' or 'wholebrain'. Nothing was done")
         
-def Detrending(niiImg, flavor, masks, imgInfo):
-    maskAll, maskWM_, maskCSF_, maskGM_ = masks
+def Detrending(niiImg, flavor, maskAll, imgInfo):
+    #maskAll, maskWM_, maskCSF_, maskGM_ = masks
     nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
     nPoly = flavor[1]
     
@@ -1762,6 +1768,7 @@ def Detrending(niiImg, flavor, masks, imgInfo):
         elif config.isGifti:
             niiImgGM = niiImg[0]
         else:
+            maskGM_ = makeGMMask()[maskAll]
             niiImgGM = volData[maskGM_,:]
         if flavor[0] == 'legendre':
             y = legendre_poly(flavor[1], nTRs)
@@ -1778,6 +1785,7 @@ def Detrending(niiImg, flavor, masks, imgInfo):
         elif config.isGifti:
             niiImg[0] = niiImgGM
         else:
+            maskGM_ = makeGMMask()[maskAll]
             volData[maskGM_,:] = niiImgGM
     elif flavor[2] == 'wholebrain':
         if flavor[0] == 'legendre':
@@ -1803,7 +1811,7 @@ def Detrending(niiImg, flavor, masks, imgInfo):
         niiImg[0] = volData            
     return niiImg[0],niiImg[1]     
    
-def TemporalFiltering(niiImg, flavor, masks, imgInfo):
+def TemporalFiltering(niiImg, flavor, maskAll, imgInfo):
     nRows, nCols, nSlices, nTRs, affine, TR, header =  imgInfo
 
     if config.doScrubbing and flavor[0] in ['Butter','Gaussian']:
@@ -1901,7 +1909,7 @@ def TemporalFiltering(niiImg, flavor, masks, imgInfo):
     config.filtering = flavor
     return niiImg[0],niiImg[1]    
 
-def GlobalSignalRegression(niiImg, flavor, masks, imgInfo):
+def GlobalSignalRegression(niiImg, flavor, maskAll, imgInfo):
     data = get_confounds()
     GS = np.array(data.loc[:,'global_signal'])
     if flavor[0] == 'GS':
@@ -1922,7 +1930,7 @@ def GlobalSignalRegression(niiImg, flavor, masks, imgInfo):
         print('Warning! Wrong normalization flavor. Using defalut regressor: GS')
         return GS[:,np.newaxis]
 
-def VoxelNormalization(niiImg, flavor, masks, imgInfo):
+def VoxelNormalization(niiImg, flavor, maskAll, imgInfo):
     if flavor[0] == 'zscore':
         niiImg[0] = stats.zscore(niiImg[0], axis=1, ddof=1)
         if niiImg[1] is not None:
@@ -1990,7 +1998,11 @@ def stepPlot(X,operationName, displayPlot=False,overwrite=False):
         
         if not config.isCifti and not config.isGifti:
             # load masks
-            maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            # maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            maskAll = makeWholeBrainMask()
+            maskWM_ = makeWMMask()[maskAll]
+            maskGM_ = makeGMMask()[maskAll]
+            maskCSF_ = makeCSFMask()[maskAll]
 
         fig = plt.figure(figsize=(15,8))
         ax1 = plt.subplot(111)
@@ -2054,7 +2066,11 @@ def makeGrayPlot(displayPlot=False,overwrite=False):
             Xgm = stats.zscore(Xgm[maskAll,:], axis=1, ddof=1)
         else:
             # load masks
-            maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            #maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            maskAll = makeWholeBrainMask()
+            maskWM_ = makeWMMask()[maskAll]
+            maskGM_ = makeGMMask()[maskAll]
+            maskCSF_ = makeCSFMask()[maskAll]
             X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile, maskAll)
             X = stats.zscore(X, axis=1, ddof=1)
             Xgm  = X[maskGM_,:]
@@ -2162,7 +2178,8 @@ def parcellate(overwrite=False):
     elif config.isGifti:
         allparcels = nib.freesurfer.read_annot(config.parcellationFile)[0]
     else:
-        maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+        #maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+        maskAll = makeWholeBrainMask()
         if not config.maskParcelswithAll:     
             maskAll  = np.ones(np.shape(maskAll), dtype=bool)
         allparcels, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.parcellationFile, maskAll)
@@ -2582,7 +2599,9 @@ def compute_vFC(overwrite=False):
             X2 = X2[maskAll,:]
             X = np.vstack([X,X2]) if 'L' in this_hemi else np.vstack([X2,X])
         else:
-            maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            #maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+            maskAll = makeWholeBrainMask()
+            maskGM_ = makeGMMask()[maskAll]
             X, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(config.fmriFile_dn, maskAll)
             X = X[maskGM_,:]
         # censor time points that need censoring
@@ -2626,7 +2645,7 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
         fcFile    = op.join(FCDir,'{}_seed_{}_{}_FC.txt'.format(fileName,seedName, parcellationName))
     else:
         fcFile    = op.join(FCDir,'{}_seed_{}_vFC.txt'.format(fileName,seedName))
-    maskAll, maskWM_, maskCSF_, maskGM_ = makeTissueMasks(False)
+    maskAll = makeWholeBrainMask()
     if not op.isfile(fcFile) or overwrite:
         seedParcel, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(seed, maskAll)
         # retrieve volumetric processed data
@@ -3143,11 +3162,14 @@ def runPipeline():
     
     timeStart = localtime()
     if not config.isGifti:
-        print('Step 0 : Building WM, CSF and GM masks...')
-        masks = makeTissueMasks(overwrite=config.overwrite)
-        maskAll, maskWM_, maskCSF_, maskGM_ = masks    
+        print('Step 0 : Retrieving whole brain mask...')
+        maskAll = makeWholeBrainMask()
+        #masks = makeTissueMasks(overwrite=config.overwrite)
+        #maskAll, maskWM_, maskCSF_, maskGM_ = masks    
     else:
-        masks = [None, None, None, None] 
+        #masks = [None, None, None, None] 
+        maskAll = None
+
 
     if config.isCifti:
         # volume
@@ -3191,8 +3213,10 @@ def runPipeline():
         data, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll) 
         volData = None
 
-    if masks[0] is None:
-        masks[0] = np.where(data.any(axis=1))[0]
+    #if masks[0] is None:
+    #    masks[0] = np.where(data.any(axis=1))[0]
+    if maskAll is None:
+        maskAll = np.where(data.any(axis=1))[0]
        
     nsteps = len(steps)
     for i in range(1,nsteps+1):
@@ -3203,12 +3227,12 @@ def runPipeline():
             if ('Regression' in step[0]) or ('TemporalFiltering' in step[0] and 'DCT' in Flavors[i][0]) or ('TemporalFiltering' in step[0] and 'CompCor' in Flavors[i][0]) or ('wholebrain' in Flavors[i][0]):
                 if (step[0]=='TissueRegression' and 'GM' in Flavors[i][0] and 'wholebrain' not in Flavors[i][0]):
                     #regression constrained to GM
-                    data, volData = Hooks[step[0]]([data,volData], Flavors[i][0], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                    data, volData = Hooks[step[0]]([data,volData], Flavors[i][0], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                 else:
-                    r0 = Hooks[step[0]]([data,volData], Flavors[i][0], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                    r0 = Hooks[step[0]]([data,volData], Flavors[i][0], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                     data = regress(data, nTRs, TR, r0, config.preWhitening)
             else:
-                data, volData = Hooks[step[0]]([data,volData], Flavors[i][0], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                data, volData = Hooks[step[0]]([data,volData], Flavors[i][0], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
         else:
             # When multiple regression steps have the same order, all the regressors are combined
             # and a single regression is performed (other operations are executed in order)
@@ -3218,13 +3242,13 @@ def runPipeline():
                 if ('Regression' in opr) or ('TemporalFiltering' in opr and 'DCT' in Flavors[i][j]) or ('TemporalFiltering' in opr and 'CompCor' in Flavors[i][j]) or ('wholebrain' in Flavors[i][j]):
                     if (opr=='TissueRegression' and 'GM' in Flavors[i][j] and 'wholebrain' not in Flavors[i][j]):
                         #regression constrained to GM
-                        data, volData = Hooks[opr]([data,volData], Flavors[i][j], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                        data, volData = Hooks[opr]([data,volData], Flavors[i][j], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                     else:    
-                        r0 = Hooks[opr]([data,volData], Flavors[i][j], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                        r0 = Hooks[opr]([data,volData], Flavors[i][j], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
                         print(opr, r0.shape)
                         r = np.append(r, r0, axis=1)
                 else:
-                    data, volData = Hooks[opr]([data,volData], Flavors[i][j], masks, [nRows, nCols, nSlices, nTRs, affine, TR, header])
+                    data, volData = Hooks[opr]([data,volData], Flavors[i][j], maskAll, [nRows, nCols, nSlices, nTRs, affine, TR, header])
             if r.shape[1] > 0:
                 data = regress(data, nTRs, TR, r, config.preWhitening)    
         data[np.isnan(data)] = 0
