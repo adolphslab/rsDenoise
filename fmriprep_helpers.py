@@ -665,13 +665,19 @@ def makeWholeBrainMask():
     return maskAll
 
 def prepareFreesurferFiles():
-    session = config.session if hasattr(config, 'session') else ''
-    prefix = config.session + '_' if hasattr(config, 'session') else ''
-    template = config.space
-    fmriFile = getFmriFile()
-    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-aseg_dseg.nii.gz'))
-    wmparcFilein = wmFiles[0] if len(wmFiles) > 0 else None
-    ribbonFilein = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFilein else None
+    if config.ribbon and config.wmparc:
+        wmparcFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: wmparcFile = wmparcFile.replace('#fMRIsession#', config.session)
+        ribbonFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: wmparcFile = ribbonFile.replace('#fMRIsession#', config.session)
+    else:
+        session = config.session if hasattr(config, 'session') else ''
+        prefix = config.session + '_' if hasattr(config, 'session') else ''
+        template = config.space
+        fmriFile = getFmriFile()
+        wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-aseg_dseg.nii.gz'))
+        wmparcFile = wmFiles[0] if len(wmFiles) > 0 else None
+        ribbonFile = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFilein else None
     return ribbonFile, wmparcFile
 
 def prepareFmriprepFiles():
