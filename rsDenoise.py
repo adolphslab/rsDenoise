@@ -274,6 +274,10 @@ def create_parser():
             help="""Process cifti volumetric data.""")  
   parser.add_argument('-smooth', '--smoothing', metavar='FWHM', type=float,
             default=None, help="""To request smoothing, specify FWHM in mm.""")           
+  parser.add_argument('-mask', '--brainmask', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified whole brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")           
+  parser.add_argument('-GM', '--maskGM', metavar='MASK_FILE', type=float,
+          default=None, help="""Path to user-specified gray matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
   requiredNamed = parser.add_argument_group('required named arguments')
   requiredNamed.add_argument('-data', '--datadir', metavar='FOLDER', type=str,
                  help="""Folder where subject data is be stored.""", required=True)
