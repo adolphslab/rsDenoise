@@ -664,7 +664,7 @@ def makeWholeBrainMask():
         maskFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: maskFile = maskFile.replace('#fMRIsession#', config.session)
         maskAll = loadMask(maskFile)
-    elif len(maskFiles > 0): # try to retrieve from func folder
+    elif len(maskFiles) > 0: # try to retrieve from func folder
         maskAll = loadMask(maskFiles[0])
     else:
         maskWM = makeWMMask()
