@@ -1564,7 +1564,6 @@ def Scrubbing(niiImg, flavor, maskAll, imgInfo):
         np.savetxt(op.join(outpath(), 'cleanFD.txt'), cleanFD, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
     elif flavor[0] == 'RMS': # not working yet, needs output from mcflirt (something to do with center of rotations)
-        maskAll, maskWM_, maskCSF_, maskGM_ = masks
         data = get_confounds()
         regs = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
         rmsdiff = np.zeros((nTRs, 1))
