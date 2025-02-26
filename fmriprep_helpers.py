@@ -591,8 +591,8 @@ def loadMask(maskFileout):
     return mask
 
 def makeWMMask(overwrite=False, maskThreshold=0.33):
-    if config.WM:
-        WMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+    if hasattr(config.WM) and config.WM:
+        WMmaskFileout = config.WM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: WMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:
         WMmaskFileout = op.join(outpath(), 'WMmask.nii')
@@ -603,7 +603,6 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
                 ribbon = np.aearray(nib.load(ribbonFile).dataobj)
                 WMmask = createFreesurferWMMask(ribbon, wmparc)
                 saveNiftiFile(WMmask, wmparcFileout, WMmaskFileout)
-                cleanUpTemporaryFiles([eyeMat, wmparcMat])
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
                 fmriFile = getFmriFile()
@@ -612,8 +611,8 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
     return loadMask(WMmaskFileout)
 
 def makeCSFMask(overwrite=False, maskThreshold=0.33):
-    if config.CSF:
-        CSFmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+    if hasattr(config.CSF) and config.CSF:
+        CSFmaskFileout = config.CSF.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: CSFmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:
         CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
@@ -623,7 +622,6 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
                 wmparc = np.asarray(nib.load(wmparcFile).dataobj)
                 CSFmask = createFreesurferCSFMask(wmparc)
                 saveNiftiFile(CSFmask, wmparcFileout, CSFmaskFileout)
-                cleanUpTemporaryFiles([eyeMat, wmparcMat])
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
                 fmriFile = getFmriFile()
@@ -632,7 +630,7 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
     return loadMask(CSFmaskFileout)
 
 def makeGMMask(overwrite=False, maskThreshold=0.33):
-    if config.GM:
+    if hasattr(config.GM) and config.GM:
         GMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: GMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:    
@@ -644,7 +642,6 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
                 ribbon = np.aearray(nib.load(ribbonFile).dataobj)
                 GMmask = createFreesurferGMMask(ribbon, wmparc)
                 saveNiftiFile(GMmask, wmparcFileout, GMmaskFileout)
-                cleanUpTemporaryFiles([eyeMat, wmparcMat])
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
                 fmriFile = getFmriFile()
@@ -653,10 +650,16 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
     return loadMask(GMmaskFileout)
 
 def makeWholeBrainMask():
-    if config.mask:
+    session = config.session if hasattr(config, 'session') else ''
+    prefix = config.session + '_' if hasattr(config, 'session') else ''
+    template = config.space
+    maskFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-brain_mask.nii.gz'))
+    if hasattr(config.mask) and config.mask:
         maskFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: maskFile = maskFile.replace('#fMRIsession#', config.session)
         maskAll = loadMask(maskFile)
+    elif len(maskFiles > 0): # try to retrieve from func folder
+        maskAll = loadMask(maskFiles[0])
     else:
         maskWM = makeWMMask()
         maskCSF = makeCSFMask()
@@ -665,7 +668,7 @@ def makeWholeBrainMask():
     return maskAll
 
 def prepareFreesurferFiles():
-    if config.ribbon and config.wmparc:
+    if hasattr(config.ribbon) and hasattr(config.wmparc) and config.ribbon and config.wmparc:
         wmparcFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: wmparcFile = wmparcFile.replace('#fMRIsession#', config.session)
         ribbonFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
