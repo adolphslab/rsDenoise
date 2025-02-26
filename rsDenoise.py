@@ -282,11 +282,11 @@ def create_parser():
           default=None, help="""Path to user-specified white matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""") 
   parser.add_argument('-CSF', '--maskCSF', metavar='MASK_FILE', type=float,
           default=None, help="""Path to user-specified CSF brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
-  parser.add_argument('-aparc', '--aparc_aseg', metavar='FILE', type=float,
-          default=None, help="""Path to user-specified aparc_aseg parcellation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
-          If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
   parser.add_argument('-aseg', '--aseg_dseg', metavar='FILE', type=float,
-          default=None, help="""Path to user-specified aseg_dseg parcellation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+          default=None, help="""Path to user-specified aseg_dseg segmentation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+          If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-aparc', '--aparcaseg', metavar='FILE', type=float,
+          default=None, help="""Path to user-specified aparcaseg_dseg segmentation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
           If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
   requiredNamed = parser.add_argument_group('required named arguments')
   requiredNamed.add_argument('-data', '--datadir', metavar='FOLDER', type=str,

@@ -591,7 +591,7 @@ def loadMask(maskFileout):
     return mask
 
 def makeWMMask(overwrite=False, maskThreshold=0.33):
-    if hasattr(config.WM) and config.WM:
+    if hasattr(config, 'WM') and config.WM:
         WMmaskFileout = config.WM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: WMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:
@@ -599,6 +599,8 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
         if not op.isfile(WMmaskFileout) or overwrite:
             if config.preprocessing == 'freesurfer': 
                 ribbonFile, wmparcFile = prepareFreesurferFiles()
+                if (ribbonFile is None) or (wmparcFile is None):
+                    print("Error! Segmentation files not found.")
                 wmparc = np.asarray(nib.load(wmparcFile).dataobj)
                 ribbon = np.aearray(nib.load(ribbonFile).dataobj)
                 WMmask = createFreesurferWMMask(ribbon, wmparc)
@@ -611,7 +613,7 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
     return loadMask(WMmaskFileout)
 
 def makeCSFMask(overwrite=False, maskThreshold=0.33):
-    if hasattr(config.CSF) and config.CSF:
+    if hasattr(config, 'CSF') and config.CSF:
         CSFmaskFileout = config.CSF.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: CSFmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:
@@ -619,6 +621,8 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
         if not op.isfile(CSFmaskFileout) or overwrite:
             if config.preprocessing == 'freesurfer': 
                 ribbonFile, wmparcFile = prepareFreesurferFiles()
+                if (ribbonFile is None) or (wmparcFile is None):
+                    print("Error! Segmentation files not found.")
                 wmparc = np.asarray(nib.load(wmparcFile).dataobj)
                 CSFmask = createFreesurferCSFMask(wmparc)
                 saveNiftiFile(CSFmask, wmparcFileout, CSFmaskFileout)
@@ -630,7 +634,7 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
     return loadMask(CSFmaskFileout)
 
 def makeGMMask(overwrite=False, maskThreshold=0.33):
-    if hasattr(config.GM) and config.GM:
+    if hasattr(config, 'GM') and config.GM:
         GMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: GMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
     else:    
@@ -638,6 +642,8 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
         if not op.isfile(GMmaskFileout) or overwrite:
             if config.preprocessing == 'freesurfer': 
                 ribbonFile, wmparcFile = prepareFreesurferFiles()
+                if (ribbonFile is None) or (wmparcFile is None):
+                    print("Error! Segmentation files not found.")
                 wmparc = np.asarray(nib.load(wmparcFile).dataobj)
                 ribbon = np.aearray(nib.load(ribbonFile).dataobj)
                 GMmask = createFreesurferGMMask(ribbon, wmparc)
@@ -654,7 +660,7 @@ def makeWholeBrainMask():
     prefix = config.session + '_' if hasattr(config, 'session') else ''
     template = config.space
     maskFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-brain_mask.nii.gz'))
-    if hasattr(config.mask) and config.mask:
+    if hasattr(config, 'mask') and config.mask:
         maskFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: maskFile = maskFile.replace('#fMRIsession#', config.session)
         maskAll = loadMask(maskFile)
@@ -668,12 +674,12 @@ def makeWholeBrainMask():
     return maskAll
 
 def prepareFreesurferFiles():
-    if hasattr(config.ribbon) and hasattr(config.wmparc) and config.ribbon and config.wmparc:
-        wmparcFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+    if hasattr(config, 'aseg') and hasattr(config, 'aparc') and config.aseg and config.aparc:
+        wmparcFile = config.aseg.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: wmparcFile = wmparcFile.replace('#fMRIsession#', config.session)
-        ribbonFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        ribbonFile = config.aparc.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: wmparcFile = ribbonFile.replace('#fMRIsession#', config.session)
-    else:
+    else: # try to retrieve from func folder (only works for older versions of fmriprep
         session = config.session if hasattr(config, 'session') else ''
         prefix = config.session + '_' if hasattr(config, 'session') else ''
         template = config.space
