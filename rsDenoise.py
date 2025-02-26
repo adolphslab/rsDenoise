@@ -9,7 +9,7 @@ from fmriprep_helpers import *
 config.sourceDir = PATH_TO_RSDENOISE
 
 # Processing options
-config.preprocessing = 'freesurfer' # change to 'fmriprep' if freesurfer outputs are not available
+config.preprocessing = 'fmriprep' # change to 'fmriprep' if freesurfer outputs are not available
 config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
 
 # Other options
@@ -60,7 +60,7 @@ def main():
                       config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))
                     else:
                       config.FCDir = args.FCdir
-                    runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
+                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in args.fmriRuns:
@@ -72,7 +72,7 @@ def main():
                     config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0])) 
                   else:
                     config.FCDir = args.FCdir               
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
           else: # compute seed to vertex FC
             sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
             if len(sessions) > 0:
@@ -86,7 +86,7 @@ def main():
                       config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))
                     else:
                       config.FCDir = args.FCdir
-                    runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=True)
+                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in fmriRuns:
@@ -98,7 +98,7 @@ def main():
                     config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0])) 
                   else:
                     config.FCDir = args.FCdir               
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=True)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
           iSurf = iSurf + 1
         args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
     else: # process nifti files
@@ -119,7 +119,7 @@ def main():
                     config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))
                   else:
                     config.FCDir = args.FCdir
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
@@ -131,7 +131,7 @@ def main():
                   config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))   
                 else:
                   config.FCDir = args.FCdir               
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=False)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
           args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
       else: # compute seed to voxel FC
         for config.subject in subjects:
@@ -144,7 +144,7 @@ def main():
                 seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                 for seedFile in seeds:
                   print('seed:',seedFile)
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=True)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
@@ -152,7 +152,7 @@ def main():
               seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
               for seedFile in seeds:
                 print('seed:',seedFile)
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=seedFile,vFC=True)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
           args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')
   else: # compute either parcel-to-parcel or voxel/vertex-wise whole brain FC (or skip FC)
     if config.isCifti or config.isGifti:
@@ -171,12 +171,12 @@ def main():
               for config.session in sessions:
                 for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
             else:
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
             iSurf = iSurf + 1
       else: # no parcellation file provided
         for config.subject in subjects: 
@@ -188,17 +188,17 @@ def main():
                 for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   if vFC:
-                    runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
+                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
                   else:
-                    runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
+                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
                 if vFC:
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
                 else:
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
             iSurf = iSurf + 1
     else: # process nifti files
       if len(args.parcellationFile) > 0:
@@ -214,12 +214,12 @@ def main():
             for config.session in sessions:
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
-              runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=False)    
+              runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)    
       else: # no parcellation file provided
         for config.subject in subjects:
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
@@ -228,17 +228,17 @@ def main():
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 if vFC:
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
                 else:
-                  runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
+                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               if vFC:
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=True,seed=None,vFC=True)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
               else:
-                runPipelinePar(do_makeGrayPlot=True,do_computeFC=False)
+                runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
   # launch array job (if there is something to do)
   if len(config.scriptlist)>0:
     JobID = fnSubmitJobArrayFromJobList()

@@ -607,7 +607,8 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
                 saveNiftiFile(WMmask, wmparcFileout, WMmaskFileout)
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
-                fmriFile = getFmriFile()
+                #fmriFile = getFmriFile()
+                fmriFile = config.fmriFile
                 WMmask = createFmriprepMask(wmFilein, fmriFile, maskThreshold)
                 saveNiftiFile(WMmask, fmriFile, WMmaskFileout)
     return loadMask(WMmaskFileout)
@@ -686,7 +687,7 @@ def prepareFreesurferFiles():
         fmriFile = getFmriFile()
         wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-aseg_dseg.nii.gz'))
         wmparcFile = wmFiles[0] if len(wmFiles) > 0 else None
-        ribbonFile = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFilein else None
+        ribbonFile = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFile else None
     return ribbonFile, wmparcFile
 
 def prepareFmriprepFiles():
@@ -728,6 +729,7 @@ def createFreesurferGMMask(ribbon, wmparc):
     return GMmask
 
 def createFmriprepMask(filein, fmriFile, maskThreshold):
+    print('>>>', filein)
     ref = nib.load(filein)
     nii = np.asarray(nib.load(filein).dataobj)
     nii = np.double(nii > maskThreshold)
