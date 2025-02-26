@@ -998,11 +998,11 @@ def checkXML(inFile, operations, params, resDir, isCifti=False, isGifti=False, u
 #  
 def get_rcode(mystring):
     if config.isCifti:
-        return re.search('.*_(........)\.dtseries.nii', mystring).group(1)
+        return re.search(r'.*_(........)\.dtseries.nii', mystring).group(1)
     elif config.isGifti:
-        return re.search('.*_(........)\.func.gii', mystring).group(1)
+        return re.search(r'.*_(........)\.func.gii', mystring).group(1)
     else:
-        return re.search('.*_(........)\.nii.gz', mystring).group(1)
+        return re.search(r'.*_(........)\.nii.gz', mystring).group(1)
 
 def _make_gen(reader):
     b = reader(1024 * 1024)
