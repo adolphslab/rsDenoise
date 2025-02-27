@@ -405,11 +405,12 @@ def load_img(volFile,maskAll=None,unzip=config.useMemMap):
 def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
     if config.isCifti or config.isGifti:
         prefix = '_'+config.session if  hasattr(config,'session')  else '' 
-        fmriFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'*_space-'+config.space+'_desc-preproc_bold.nii.gz'))
+        space = '' if config.space == 'native' else '*_space-'+config.space # no space token in native space
+        fmriFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz'))
         if len(fmriFile) > 0:
             fmriFile = fmriFile[0]
         else:
-               print('Error! Volume file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'func',config.subject+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               print('Error! Volume file not found:',op.join(config.DATADIR, config.subject, '_'+session, 'func',config.subject+prefix+config.fmriRun+space+'_desc_preproc_bold.nii.gz')) 
 
     else:
         fmriFile = config.fmriFile
@@ -419,16 +420,16 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
     GMmaskFileout = op.join(outpath(), 'GMmask.nii')
     
     if not op.isfile(GMmaskFileout) or overwrite:
-        if config.preprocessing == 'freesurfer': # output of fmriprep + freesurfer
+        if config.preprocessing == 'freesurfer': # use aparc and aparcaseg files
             session = config.session if hasattr(config,'session') else ''
             prefix = config.session+'_' if hasattr(config,'session')  else ''
-            template = config.space
-            wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'*_desc-aseg_dseg.nii.gz'))
+            space = '' if config.space == 'native' else '*_space-'+config.space # no space token in native space
+            wmFiles =  glob.glob(op.join(config.DATADIR, config.subject, session, 'func',config.subject+'_'+prefix+config.fmriRun+space+'*_desc-aseg_dseg.nii.gz'))
             if len(wmFiles) > 0: 
                wmparcFilein = wmFiles[0]
                ribbonFilein = wmparcFilein.replace('aseg_dseg','aparcaseg_dseg')
             else: # files not found
-               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, prefix, 'func',config.subject+'_'+prefix+config.fmriRun+'*_space-'+template+'_desc-aseg_dseg.nii.gz')) 
+               print('Error! Tissue file not found:',op.join(config.DATADIR, config.subject, prefix, 'func',config.subject+'_'+prefix+config.fmriRun+space+'_desc-aseg_dseg.nii.gz')) 
                return None
             ribbonFileout = op.join(outpath(), 'ribbon.nii.gz')
             wmparcFileout = op.join(outpath(), 'wmparc.nii.gz')
@@ -504,7 +505,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             if len(glob.glob(op.join(config.DATADIR, session, 'anat', '*probseg.nii.gz'))) == 0:
                 session = ''
             prefix = '_'+config.session if hasattr(config,'session') else ''
-            if config.space == 'T1w':
+            if config.space == 'T1w' or config.space == 'native':
                 wmFilein =  op.join(config.DATADIR, config.subject, session, 'anat', config.subject+prefix+'_label-WM_probseg.nii.gz')
                 if not op.isfile(wmFilein): # trying adding run
                   prefix = prefix + '_' + config.fmriRun
@@ -543,9 +544,14 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             CSFnii = nib.Nifti1Image(CSFnii.reshape(ref.shape).astype('<f4'), ref.affine)
             
             ref = nib.load(fmriFile)
-            WMmask = image.resample_to_img(WMnii, ref, interpolation='nearest')
-            GMmask = image.resample_to_img(GMnii, ref, interpolation='nearest')
-            CSFmask = image.resample_to_img(CSFnii, ref, interpolation='nearest')
+            if config.space = 'native':
+                WMmask = nimg.resample_img(WMnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
+                GMmask = nimg.resample_img(GMnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
+                CSFmask = nimg.resample_img(CSFnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
+            else:
+                WMmask = image.resample_to_img(WMnii, ref, interpolation='nearest')
+                GMmask = image.resample_to_img(GMnii, ref, interpolation='nearest')
+                CSFmask = image.resample_to_img(CSFnii, ref, interpolation='nearest')
 
             WMmask = np.asarray(WMmask.dataobj)
             GMmask = np.asarray(GMmask.dataobj)
@@ -607,8 +613,7 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
                 saveNiftiFile(WMmask, wmparcFileout, WMmaskFileout)
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
-                #fmriFile = getFmriFile()
-                fmriFile = config.fmriFile
+                fmriFile = getVolFile()
                 WMmask = createFmriprepMask(wmFilein, fmriFile, maskThreshold)
                 saveNiftiFile(WMmask, fmriFile, WMmaskFileout)
     return loadMask(WMmaskFileout)
@@ -629,7 +634,7 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
                 saveNiftiFile(CSFmask, wmparcFileout, CSFmaskFileout)
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
-                fmriFile = getFmriFile()
+                fmriFile = getVolFile()
                 CSFmask = createFmriprepMask(csfFilein, fmriFile, maskThreshold)
                 saveNiftiFile(CSFmask, fmriFile, CSFmaskFileout)
     return loadMask(CSFmaskFileout)
@@ -651,7 +656,7 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
                 saveNiftiFile(GMmask, wmparcFileout, GMmaskFileout)
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
-                fmriFile = getFmriFile()
+                fmriFile = getVolFile()
                 GMmask = createFmriprepMask(gmFilein, fmriFile, maskThreshold)
                 saveNiftiFile(GMmask, fmriFile, GMmaskFileout)
     return loadMask(GMmaskFileout)
@@ -659,8 +664,8 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
 def makeWholeBrainMask():
     session = config.session if hasattr(config, 'session') else ''
     prefix = config.session + '_' if hasattr(config, 'session') else ''
-    template = config.space
-    maskFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-brain_mask.nii.gz'))
+    space = '' if config.space == 'native' else '*_space-'+config.space # no space token in native space
+    maskFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + space + '*_desc-brain_mask.nii.gz'))
     if hasattr(config, 'mask') and config.mask:
         maskFile = config.mask.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: maskFile = maskFile.replace('#fMRIsession#', config.session)
@@ -680,12 +685,11 @@ def prepareFreesurferFiles():
         if hasattr(config, 'session') and config.session: wmparcFile = wmparcFile.replace('#fMRIsession#', config.session)
         ribbonFile = config.aparc.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
         if hasattr(config, 'session') and config.session: wmparcFile = ribbonFile.replace('#fMRIsession#', config.session)
-    else: # try to retrieve from func folder (only works for older versions of fmriprep
+    else: # try to retrieve from func folder (only works for older versions of fmriprep)
         session = config.session if hasattr(config, 'session') else ''
         prefix = config.session + '_' if hasattr(config, 'session') else ''
-        template = config.space
-        fmriFile = getFmriFile()
-        wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + '*_space-' + template + '*_desc-aseg_dseg.nii.gz'))
+        space = '' if config.space == 'native' else '*_space-'+config.space # no space token in native space
+        wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'func', config.subject + '_' + prefix + config.fmriRun + space + '*_desc-aseg_dseg.nii.gz'))
         wmparcFile = wmFiles[0] if len(wmFiles) > 0 else None
         ribbonFile = wmparcFilein.replace('aseg_dseg', 'aparcaseg_dseg') if wmparcFile else None
     return ribbonFile, wmparcFile
@@ -696,16 +700,16 @@ def prepareFmriprepFiles():
     if len(glob.glob(op.join(config.DATADIR, session, 'anat', '*probseg.nii.gz'))) == 0:
         session = ''
     prefix = '_' + config.session if hasattr(config, 'session') else ''
-    template = config.space
-    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'anat', config.subject + prefix + '*_space-' + template + '_label-WM_probseg.nii.gz'))
+    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'anat', config.subject + prefix + '_label-WM_probseg.nii.gz'))
     wmFilein = wmFiles[0] if len(wmFiles) > 0 else None
     gmFilein = wmFilein.replace('WM', 'GM') if wmFilein else None
     csfFilein = wmFilein.replace('WM', 'CSF') if wmFilein else None
     return wmFilein, gmFilein, csfFilein
 
-def getFmriFile():
+def getVolFile():
     prefix = '_' + config.session if hasattr(config, 'session') else ''
-    fmriFile = glob.glob(op.join(buildpath(), config.subject + prefix + '_' + config.fmriRun + '*_space-' + config.space + '_desc-preproc_bold.nii.gz'))
+    space = '' if config.space == 'native' else '*_space-'+config.space # no space token in native space
+    fmriFile = glob.glob(op.join(buildpath(), config.subject + prefix + '_' + config.fmriRun + space + '_desc-preproc_bold.nii.gz'))
     return fmriFile[0] if len(fmriFile) > 0 else None
 
 def createFreesurferWMMask(ribbon, wmparc):
@@ -2385,7 +2389,8 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                                 if isCifti:
                                     inputFile = op.join(buildpath(), config.subject+'_'+config.session+'_'+config.fmriRun+'_space-'+config.surface+'_bold.dtseries.nii')
                                 else:
-                                    inputFile = op.join(buildpath(), config.subject+'_'+config.session+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+                                    space = '' if config.space == 'native' else '_space-'+config.space # no space token in native space
+                                    inputFile = op.join(buildpath(), config.subject+'_'+config.session+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz')
                             outputPath = outpath() if outputDir is None else outputDir
                             preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti, isGifti)
                             if preproFile:
@@ -2423,7 +2428,8 @@ def getAllFC(subjectList,runs,sessions=None,parcellation=None,operations=None,ou
                             if isCifti:
                                 inputFile = op.join(buildpath(), config.subject+'_'+config.fmriRun+'_space-'+config.surface+'_bold.dtseries.nii')
                             else:
-                                inputFile = op.join(buildpath(), config.subject+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+                                space = '' if config.space == 'native' else '_space-'+config.space # no space token in native space
+                                inputFile = op.join(buildpath(), config.subject+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz')
                         outputPath = outpath() if (outputDir is None) else outputDir
                         preproFile = retrieve_preprocessed(inputFile, operations, outputPath, isCifti, isGifti)
                         if preproFile:
@@ -2661,7 +2667,8 @@ def compute_seedFC(overwrite=False, seed=None, vFC=False, parcellationFile=None,
         # retrieve volumetric processed data
         if config.isCifti or config.isGifti:
             prefix = '_'+config.session if  hasattr(config,'session')  else ''
-            inFile = op.join(buildpath(),config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+            space = '' if config.space == 'native' else '_space-'+config.space # no space token in native space
+            inFile = op.join(buildpath(),config.subject+prefix+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz')
             outputPath = outpath() if (outputDir is None) else outputDir
             volFile = retrieve_preprocessed(inFile, config.Operations, outputPath, False, False)
             if volFile is None:
@@ -3184,7 +3191,8 @@ def runPipeline():
     if config.isCifti:
         # volume
         prefix = '_'+config.session if  hasattr(config,'session')  else ''
-        volFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'*_space-'+config.space+'_desc-preproc_bold.nii.gz'))
+        space = '' if config.space == 'native' else '_space-'+config.space # no space token in native space
+        volFile = glob.glob(op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz'))
         volFile = volFile[0]
         print('Loading [volume] data in memory... {}'.format(volFile))
         volData, nRows, nCols, nSlices, nTRs, affine, TR, header = load_img(volFile, maskAll) 
@@ -3338,7 +3346,8 @@ def runPipelinePar(launchSubproc=False,overwriteFC=False,cleanup=True,do_makeGra
         elif config.isGifti:
             config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.surface+'_bold.func.gii')
         else:
-            config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+'_space-'+config.space+'_desc-preproc_bold.nii.gz')
+            space = '' if config.space == 'native' else '_space-'+config.space # no space token in native space
+            config.fmriFile = op.join(buildpath(), config.subject+prefix+'_'+config.fmriRun+space+'_desc-preproc_bold.nii.gz')
     
     if not op.isfile(config.fmriFile):
         print(config.fmriFile, 'missing')
