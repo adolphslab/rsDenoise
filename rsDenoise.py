@@ -1,24 +1,12 @@
-import sys, argparse
+import os, sys, argparse
 
 ### Set parameters #################################################
-PATH_TO_RSDENOISE = '/projects/MINDLAB2016_MR-SensCogFromNeural/scripts/rsDenoise/repos/rsDenoise'
+PATH_TO_RSDENOISE = os.path.dirname(os.path.realpath(__file__)) # or replace with correct path
 sys.path.append(PATH_TO_RSDENOISE)
 from fmriprep_helpers import *
 
 # config is a global variable used by several functions
 config.sourceDir = PATH_TO_RSDENOISE
-
-# Processing options
-config.preprocessing = 'fmriprep' # change to 'fmriprep' if freesurfer outputs are not available
-config.interpolation = 'linear' # 'linear' or 'astropy' 'power'
-
-# Other options
-config.queue = False # set to True to use sge qsub
-config.sgeopts  = '-pe threaded 2-2 -q highmem_short.q -l h_vmem=16G -v OMP_NUM_THREADS=$NSLOTS'
-config.overwrite = False
-
-# interpolate over non-contiguous voxels (e.g. 5) 
-config.n_contiguous = 1 # 1 does not interpolate over timepoint 
 
 #####################################################################
 
@@ -33,6 +21,15 @@ def main():
   config.smoothing = args.smoothing
   config.parcellationName = args.parcellationName
   config.nParcels = args.nParcels
+  config.overwrite = args.overwrite
+  config.excludeTimePoints = args.excludeTimePoints
+  if args.sgeopts:
+      config.queue = True
+      config.sgeopts = args.sgeopts
+  if args.aparc and args.aseg:
+      config.preprocessing = 'freesurfer' 
+  else: 
+      config.preprocessing = 'fmriprep'
   vFC = args.vFC
   subjects = np.loadtxt(args.input,dtype=str,ndmin=1)
   if not 'sub-' in subjects[0]: subjects = np.array(['sub-' + s for s in subjects])
@@ -86,7 +83,7 @@ def main():
                       config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))
                     else:
                       config.FCDir = args.FCdir
-                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
+                    runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=True)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in fmriRuns:
@@ -98,7 +95,7 @@ def main():
                     config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0])) 
                   else:
                     config.FCDir = args.FCdir               
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=True)
           iSurf = iSurf + 1
         args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
     else: # process nifti files
@@ -119,7 +116,7 @@ def main():
                     config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))
                   else:
                     config.FCDir = args.FCdir
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
@@ -131,7 +128,7 @@ def main():
                   config.FCDir = op.join(config.outDir,config.pipelineName+'_{}_{}_seedFC'.format(config.space,op.splitext(op.basename(seedFile))[0]))   
                 else:
                   config.FCDir = args.FCdir               
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=False)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=False)
           args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')      
       else: # compute seed to voxel FC
         for config.subject in subjects:
@@ -144,7 +141,7 @@ def main():
                 seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
                 for seedFile in seeds:
                   print('seed:',seedFile)
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=True)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
@@ -152,7 +149,7 @@ def main():
               seeds = [op.join(args.seedFolder,config.space,fpath) for fpath in os.listdir(op.join(args.seedFolder,config.space))]
               for seedFile in seeds:
                 print('seed:',seedFile)
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=seedFile,vFC=True)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=seedFile,vFC=True)
           args.seedFolder = args.seedFolder.replace(config.subject,'#subjectID#')
   else: # compute either parcel-to-parcel or voxel/vertex-wise whole brain FC (or skip FC)
     if config.isCifti or config.isGifti:
@@ -171,12 +168,12 @@ def main():
               for config.session in sessions:
                 for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=False)
             else:
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=False)
             iSurf = iSurf + 1
       else: # no parcellation file provided
         for config.subject in subjects: 
@@ -188,17 +185,17 @@ def main():
                 for config.fmriRun in args.fmriRuns:
                   print('Processing:',config.subject, config.session, config.fmriRun)
                   if vFC:
-                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
+                    runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=True)
                   else:
-                    runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
+                    runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=False)
             else: # no sessions
               if hasattr(config,'session'): delattr(config,'session')
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.fmriRun)
                 if vFC:
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=True)
                 else:
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=False)
             iSurf = iSurf + 1
     else: # process nifti files
       if len(args.parcellationFile) > 0:
@@ -214,12 +211,12 @@ def main():
             for config.session in sessions:
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
-              runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=False)    
+              runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=False)    
       else: # no parcellation file provided
         for config.subject in subjects:
           sessions = [fpath for fpath in os.listdir(op.join(config.DATADIR,config.subject)) if fpath.startswith('ses-')]
@@ -228,17 +225,17 @@ def main():
               for config.fmriRun in args.fmriRuns:
                 print('Processing:',config.subject, config.session, config.fmriRun)
                 if vFC:
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=True)
                 else:
-                  runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
+                  runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=False)
           else: # no sessions
             if hasattr(config,'session'): delattr(config,'session')
             for config.fmriRun in args.fmriRuns:
               print('Processing:',config.subject, config.fmriRun)
               if vFC:
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=True,seed=None,vFC=True)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=True,seed=None,vFC=True)
               else:
-                runPipelinePar(do_makeGrayPlot=False,do_computeFC=False)
+                runPipelinePar(launchSuproc=args.subprocess,do_makeGrayPlot=args.grayplot,do_computeFC=False)
   # launch array job (if there is something to do)
   if len(config.scriptlist)>0:
     JobID = fnSubmitJobArrayFromJobList()
@@ -272,22 +269,34 @@ def create_parser():
             help="""Process gifti surface data.""") 
   parser.add_argument('-cifti', '--cifti', action='store_true', default=False,
             help="""Process cifti volumetric data.""")  
+  parser.add_argument('-n_contiguous', '--n_contiguous', metavar='N_TIMEPOINTS', type=int,
+            default=1, help="""If set, interpolate over non-contiguous segments shorter than N_TIMEPOINTS. Default is to not interpolate. Only relevant if Scrubbing is requested or excludeTimePoints is set.""")
+  parser.add_argument('-overwrite', '--overwrite', action='store_true', default=False,
+            help="""To overwrite precomputed outputs. If not set, it will try to resume computation using files from output directory""")
+  parser.add_argument('-subprocess', '--multiprocessing', action='store_true', default=False,
+          help="""If set, spawn a separate subprocess for each run using Python multiprocessing""")
+  parser.add_argument('-grayplot', '--carpetplot', action='store_true', default=False,
+            help="""To create gray plots.""")
   parser.add_argument('-smooth', '--smoothing', metavar='FWHM', type=float,
             default=None, help="""To request smoothing, specify FWHM in mm.""")           
-  parser.add_argument('-mask', '--brainmask', metavar='MASK_FILE', type=float,
+  parser.add_argument('-mask', '--brainmask', metavar='MASK_FILE', type=str,
           default=None, help="""Path to user-specified whole brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")           
-  parser.add_argument('-GM', '--maskGM', metavar='FILE', type=float,
+  parser.add_argument('-GM', '--maskGM', metavar='FILE', type=str,
           default=None, help="""Path to user-specified gray matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
-  parser.add_argument('-WM', '--maskWM', metavar='FILE', type=float,
+  parser.add_argument('-WM', '--maskWM', metavar='FILE', type=str,
           default=None, help="""Path to user-specified white matter brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""") 
-  parser.add_argument('-CSF', '--maskCSF', metavar='MASK_FILE', type=float,
+  parser.add_argument('-CSF', '--maskCSF', metavar='MASK_FILE', type=str,
           default=None, help="""Path to user-specified CSF brain mask. If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
-  parser.add_argument('-aseg', '--aseg_dseg', metavar='FILE', type=float,
-          default=None, help="""Path to user-specified aseg_dseg segmentation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+  parser.add_argument('-aseg', '--aseg_dseg', metavar='FILE', type=str,
+          default=None, help="""Path to user-specified aseg_dseg segmentation file. Must be a NiFTi file. To be specified together with -aparc'
           If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
-  parser.add_argument('-aparc', '--aparcaseg', metavar='FILE', type=float,
-          default=None, help="""Path to user-specified aparcaseg_dseg segmentation file. Must be a NiFTi file. Required if config.preprocessing = 'freesurfer'.
+  parser.add_argument('-aparc', '--aparcaseg', metavar='FILE', type=str,
+          default=None, help="""Path to user-specified aparcaseg_dseg segmentation file. Must be a NiFTi file. To be specified together with -aseg'
           If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-excludeTimePoints', '--excludeTimePoints', metavar='FILE', type=str,
+          default='', help="""Path to user-specified file listing time points to exclude (0-indexed). If present, these wildcards will be replaced: #subjectID#, #fMRIrun#, #fMRIsession#""")      
+  parser.add_argument('-sgeopts', '--qsub_opts', metavar='SGE_OPTIONS', type=str,
+          default='', help="""If set, it will submit an array job with sge qsub with SGE_OPTIONS as parameters""")      
   requiredNamed = parser.add_argument_group('required named arguments')
   requiredNamed.add_argument('-data', '--datadir', metavar='FOLDER', type=str,
                  help="""Folder where subject data is be stored.""", required=True)
