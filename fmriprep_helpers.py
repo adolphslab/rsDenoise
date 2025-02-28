@@ -1571,7 +1571,7 @@ def Scrubbing(niiImg, flavor, maskAll, imgInfo):
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
     elif flavor[0] == 'RMS': 
         data = get_confounds()
-        score = np.array(data['dvars']).astype(float)
+        score = np.array(data['rmsd']).astype(float)
         score[np.isnan(score)] = 0
         censored = np.where(score>thr)
         np.savetxt(op.join(outpath(), '{}.txt'.format(flavor[0])), score, delimiter='\n', fmt='%d')
