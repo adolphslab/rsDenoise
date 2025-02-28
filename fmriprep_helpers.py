@@ -544,7 +544,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
             CSFnii = nib.Nifti1Image(CSFnii.reshape(ref.shape).astype('<f4'), ref.affine)
             
             ref = nib.load(fmriFile)
-            if config.space = 'native':
+            if config.space == 'native':
                 WMmask = nimg.resample_img(WMnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
                 GMmask = nimg.resample_img(GMnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
                 CSFmask = nimg.resample_img(CSFnii, target_affine=ref.affine, target_shape=ref.shape[:3], interpolation='continuous')
