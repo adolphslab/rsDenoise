@@ -32,6 +32,9 @@ def main():
       config.aparc = args.aparcaseg
   else: 
       config.preprocessing = 'fmriprep'
+  if args.maskGM: config.GM = args.maskGM
+  if args.maskWM: config.WM = args.maskWM
+  if args.maskCSF: config.CSF = args.maskCSF
   vFC = args.vFC
   subjects = np.loadtxt(args.input,dtype=str,ndmin=1)
   if not 'sub-' in subjects[0]: subjects = np.array(['sub-' + s for s in subjects])

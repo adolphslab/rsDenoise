@@ -587,7 +587,7 @@ def makeTissueMasks(overwrite=False,precomputed=False, maskThreshold=0.33):
 
 def saveNiftiFile(mask, refFileout, maskFileout):
     ref = nib.load(refFileout)
-    img = nib.Nifti1Image(mask.reshape(ref.shape).astype('<f4'), ref.affine)
+    img = nib.Nifti1Image(mask.reshape(ref.shape[:3]).astype('<f4'), ref.affine)
     nib.save(img, maskFileout)
 
 def loadMask(maskFileout):
@@ -598,8 +598,9 @@ def loadMask(maskFileout):
 
 def makeWMMask(overwrite=False, maskThreshold=0.33):
     if hasattr(config, 'WM') and config.WM:
-        WMmaskFileout = config.WM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
-        if hasattr(config, 'session') and config.session: WMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+        WMmaskFilein = config.WM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: WMmaskFilein = maskFile.replace('#fMRIsession#', config.session)
+        return loadMask(WMmaskFilein)
     else:
         WMmaskFileout = op.join(outpath(), 'WMmask.nii')
         if not op.isfile(WMmaskFileout) or overwrite:
@@ -613,15 +614,17 @@ def makeWMMask(overwrite=False, maskThreshold=0.33):
                 saveNiftiFile(WMmask, wmparcFileout, WMmaskFileout)
             else:
                 wmFilein, gmFilein, csfFilein = prepareFmriprepFiles()
+                print(wmFilein, gmFilein, csfFilein)
                 fmriFile = getVolFile()
                 WMmask = createFmriprepMask(wmFilein, fmriFile, maskThreshold)
                 saveNiftiFile(WMmask, fmriFile, WMmaskFileout)
-    return loadMask(WMmaskFileout)
+        return loadMask(WMmaskFileout)
 
 def makeCSFMask(overwrite=False, maskThreshold=0.33):
     if hasattr(config, 'CSF') and config.CSF:
-        CSFmaskFileout = config.CSF.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
-        if hasattr(config, 'session') and config.session: CSFmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+        CSFmaskFilein = config.CSF.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: CSFmaskFilein = maskFile.replace('#fMRIsession#', config.session)
+        return loadMask(CSFmaskFilein)
     else:
         CSFmaskFileout = op.join(outpath(), 'CSFmask.nii')
         if not op.isfile(CSFmaskFileout) or overwrite:
@@ -637,12 +640,13 @@ def makeCSFMask(overwrite=False, maskThreshold=0.33):
                 fmriFile = getVolFile()
                 CSFmask = createFmriprepMask(csfFilein, fmriFile, maskThreshold)
                 saveNiftiFile(CSFmask, fmriFile, CSFmaskFileout)
-    return loadMask(CSFmaskFileout)
+        return loadMask(CSFmaskFileout)
 
 def makeGMMask(overwrite=False, maskThreshold=0.33):
     if hasattr(config, 'GM') and config.GM:
-        GMmaskFileout = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
-        if hasattr(config, 'session') and config.session: GMmaskFileout = maskFile.replace('#fMRIsession#', config.session)
+        GMmaskFilein = config.GM.replace('#fMRIrun#', config.fmriRun).replace('#subjectID#', config.subject)
+        if hasattr(config, 'session') and config.session: GMmaskFilein = maskFile.replace('#fMRIsession#', config.session)
+        return loadMask(GMmaskFilein)
     else:    
         GMmaskFileout = op.join(outpath(), 'GMmask.nii')
         if not op.isfile(GMmaskFileout) or overwrite:
@@ -659,7 +663,7 @@ def makeGMMask(overwrite=False, maskThreshold=0.33):
                 fmriFile = getVolFile()
                 GMmask = createFmriprepMask(gmFilein, fmriFile, maskThreshold)
                 saveNiftiFile(GMmask, fmriFile, GMmaskFileout)
-    return loadMask(GMmaskFileout)
+        return loadMask(GMmaskFileout)
 
 def makeWholeBrainMask():
     session = config.session if hasattr(config, 'session') else ''
@@ -700,7 +704,7 @@ def prepareFmriprepFiles():
     if len(glob.glob(op.join(config.DATADIR, session, 'anat', '*probseg.nii.gz'))) == 0:
         session = ''
     prefix = '_' + config.session if hasattr(config, 'session') else ''
-    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'anat', config.subject + prefix + '_label-WM_probseg.nii.gz'))
+    wmFiles = glob.glob(op.join(config.DATADIR, config.subject, session, 'anat', config.subject + prefix + '*_label-WM_probseg.nii.gz'))
     wmFilein = wmFiles[0] if len(wmFiles) > 0 else None
     gmFilein = wmFilein.replace('WM', 'GM') if wmFilein else None
     csfFilein = wmFilein.replace('WM', 'CSF') if wmFilein else None
@@ -733,13 +737,9 @@ def createFreesurferGMMask(ribbon, wmparc):
     return GMmask
 
 def createFmriprepMask(filein, fmriFile, maskThreshold):
-    print('>>>', filein)
-    ref = nib.load(filein)
-    nii = np.asarray(nib.load(filein).dataobj)
-    nii = np.double(nii > maskThreshold)
-    nii = nib.Nifti1Image(nii.reshape(ref.shape).astype('<f4'), ref.affine)
+    nii = nib.load(filein)
     ref = nib.load(fmriFile)
-    mask = image.resample_to_img(nii, ref, interpolation='nearest')
+    mask = image.resample_to_img(nii, ref, interpolation='nearest', copy_header=True, force_resample=True)
     mask = np.asarray(mask.dataobj)
     return mask
 
