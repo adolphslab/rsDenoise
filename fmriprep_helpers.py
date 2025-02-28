@@ -1517,7 +1517,7 @@ def Scrubbing(niiImg, flavor, maskAll, imgInfo):
         np.savetxt(op.join(outpath(), 'FDmultiband.txt'), score, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
     elif flavor[0] == 'DVARS':
-        data = get_confounds()
+        data = get_confounds
         score = np.array(data['dvars']).astype(float)
         score[np.isnan(score)] = 0
         censored = np.where(score>thr)
@@ -1569,35 +1569,9 @@ def Scrubbing(niiImg, flavor, maskAll, imgInfo):
         np.savetxt(op.join(outpath(), 'FD.txt'), score, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'cleanFD.txt'), cleanFD, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
-    elif flavor[0] == 'RMS': # not working yet, needs output from mcflirt (something to do with center of rotations)
+    elif flavor[0] == 'RMS': 
         data = get_confounds()
-        regs = np.array(data.loc[:,('trans_x', 'trans_y', 'trans_z', 'rot_x', 'rot_y', 'rot_z')])
-        rmsdiff = np.zeros((nTRs, 1))
-        idx_maskall = np.unravel_index(np.where(maskAll), [nRows,nCols,nSlices], order='F')
-        minz, maxz = np.min(idx_maskall[2]), np.max(idx_maskall[2])
-        miny, maxy = np.min(idx_maskall[1]), np.max(idx_maskall[1])
-        minx, maxx = np.min(idx_maskall[0]), np.max(idx_maskall[0])
-        xdim = header.structarr['pixdim'][1]
-        ydim = header.structarr['pixdim'][2]
-        zdim = header.structarr['pixdim'][3]
-        for i in range(1,nTRs):
-            sumdistsq = 0.0
-            nvox = 0.0
-            cvec = np.zeros((4,1))
-            cvec[3] = 1
-            aff1 = get_affine(regs[i,3:6], regs[i,:3])
-            aff2 = get_affine(regs[i-1,3:6], regs[i-1,:3])
-            for z in range(minz,maxz+1):    
-                for y in range(miny,maxy+1):    
-                    for x in range(minx,maxx+1):    
-                        idx = np.ravel_multi_index([x,y,z],[nRows,nCols,nSlices], order='F')
-                        if maskAll[idx] > 0.5:
-                            cvec[0], cvec[1], cvec[2] = x*xdim, y*ydim, x*zdim
-                            dist = linalg.norm(np.dot((aff1-aff2),cvec),2)
-                            sumdistsq += dist*dist
-                            nvox += 1
-            rmsdiff[i] = np.sqrt(sumdistsq/nvox)
-        score = rmsdiff
+        score = np.array(data['dvars']).astype(float)
         score[np.isnan(score)] = 0
         censored = np.where(score>thr)
         np.savetxt(op.join(outpath(), '{}.txt'.format(flavor[0])), score, delimiter='\n', fmt='%d')
