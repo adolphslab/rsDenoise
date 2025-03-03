@@ -3153,10 +3153,13 @@ def runPipeline():
     
     timeStart = localtime()
     if not config.isGifti:
-        print('Step 0 : Retrieving whole brain mask...')
-        maskAll = makeWholeBrainMask()
-        #masks = makeTissueMasks(overwrite=config.overwrite)
-        #maskAll, maskWM_, maskCSF_, maskGM_ = masks    
+        if config.legacy:
+	    print('Step 0 : Creating tissue masks (legacy implementation)...')
+	    masks = makeTissueMasks(overwrite=config.overwrite)
+            maskAll, maskWM_, maskCSF_, maskGM_ = masks  
+	else:
+	    print('Step 0 : Retrieving whole brain mask...')
+            maskAll = makeWholeBrainMask()
     else:
         #masks = [None, None, None, None] 
         maskAll = None
