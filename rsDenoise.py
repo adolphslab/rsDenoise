@@ -35,6 +35,8 @@ def main():
   if args.maskGM: config.GM = args.maskGM
   if args.maskWM: config.WM = args.maskWM
   if args.maskCSF: config.CSF = args.maskCSF
+  if args.legacy: config.legacy = args.legacy
+
   vFC = args.vFC
   subjects = np.loadtxt(args.input,dtype=str,ndmin=1)
   if not 'sub-' in subjects[0]: subjects = np.array(['sub-' + s for s in subjects])
@@ -282,6 +284,8 @@ def create_parser():
           help="""If set, spawn a separate subprocess for each run using Python multiprocessing""")
   parser.add_argument('-grayplot', '--carpetplot', action='store_true', default=False,
             help="""To create gray plots.""")
+  parser.add_argument('-old', '--legacy', action='store_true', default=False,
+            help="""If set, use legacy implementation for tissue mask creation.""")
   parser.add_argument('-smooth', '--smoothing', metavar='FWHM', type=float,
             default=None, help="""To request smoothing, specify FWHM in mm.""")           
   parser.add_argument('-mask', '--brainmask', metavar='MASK_FILE', type=str,
