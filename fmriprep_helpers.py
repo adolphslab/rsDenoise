@@ -1517,7 +1517,7 @@ def Scrubbing(niiImg, flavor, maskAll, imgInfo):
         np.savetxt(op.join(outpath(), 'FDmultiband.txt'), score, delimiter='\n', fmt='%f')
         np.savetxt(op.join(outpath(), 'DVARS.txt'), scoreDVARS, delimiter='\n', fmt='%f')
     elif flavor[0] == 'DVARS':
-        data = get_confounds
+        data = get_confounds()
         score = np.array(data['dvars']).astype(float)
         score[np.isnan(score)] = 0
         censored = np.where(score>thr)
